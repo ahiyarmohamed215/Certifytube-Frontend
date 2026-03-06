@@ -20,6 +20,7 @@ export interface YouTubeVideo {
   videoId: string;
   title: string;
   iframeUrl: string;
+  videoDurationSec?: number | null;
 }
 
 export interface YouTubeSearchResponse {

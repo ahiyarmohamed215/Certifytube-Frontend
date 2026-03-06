@@ -10,6 +10,108 @@ import type { YouTubeSearchResponse } from "../../types/api";
 const SEARCH_TEXT_KEY = "ct_home_search_text";
 const SEARCH_SUBMITTED_KEY = "ct_home_search_submitted";
 const SEARCH_RESULTS_KEY = "ct_home_search_results";
+const SEARCH_DURATIONS_KEY = "ct_home_video_durations";
+
+declare global {
+  interface Window {
+    YT?: any;
+    onYouTubeIframeAPIReady?: () => void;
+  }
+}
+
+let ytApiReadyPromise: Promise<void> | null = null;
+
+function loadYouTubeIframeApi(): Promise<void> {
+  if (typeof window === "undefined") return Promise.resolve();
+  if (window.YT?.Player) return Promise.resolve();
+  if (ytApiReadyPromise) return ytApiReadyPromise;
+
+  ytApiReadyPromise = new Promise<void>((resolve) => {
+    const existing = document.querySelector('script[src="https://www.youtube.com/iframe_api"]');
+    const prev = window.onYouTubeIframeAPIReady;
+
+    window.onYouTubeIframeAPIReady = () => {
+      prev?.();
+      resolve();
+    };
+
+    if (!existing) {
+      const tag = document.createElement("script");
+      tag.src = "https://www.youtube.com/iframe_api";
+      document.body.appendChild(tag);
+    }
+  });
+
+  return ytApiReadyPromise;
+}
+
+async function fetchVideoDurationSec(videoId: string): Promise<number | null> {
+  try {
+    await loadYouTubeIframeApi();
+  } catch {
+    return null;
+  }
+
+  if (!window.YT?.Player) return null;
+
+  return new Promise<number | null>((resolve) => {
+    const container = document.createElement("div");
+    container.id = `ct-yt-duration-${videoId}-${Math.random().toString(36).slice(2, 8)}`;
+    container.style.position = "absolute";
+    container.style.left = "-9999px";
+    container.style.width = "1px";
+    container.style.height = "1px";
+    document.body.appendChild(container);
+
+    let player: any = null;
+    let settled = false;
+    let timeoutId = 0;
+
+    const finalize = (value: number | null) => {
+      if (settled) return;
+      settled = true;
+      if (timeoutId) window.clearTimeout(timeoutId);
+      try {
+        player?.destroy?.();
+      } catch {
+        // noop
+      }
+      container.remove();
+      resolve(value);
+    };
+
+    const readDuration = (attempt = 0) => {
+      try {
+        const raw = Number(player?.getDuration?.() ?? 0);
+        if (Number.isFinite(raw) && raw > 0) {
+          finalize(Math.round(raw));
+          return;
+        }
+      } catch {
+        // noop
+      }
+
+      if (attempt >= 8) {
+        finalize(null);
+        return;
+      }
+
+      window.setTimeout(() => readDuration(attempt + 1), 250);
+    };
+
+    timeoutId = window.setTimeout(() => finalize(null), 6000);
+    player = new window.YT.Player(container.id, {
+      videoId,
+      width: "1",
+      height: "1",
+      playerVars: { autoplay: 0, controls: 0, rel: 0, modestbranding: 1 },
+      events: {
+        onReady: () => readDuration(),
+        onError: () => finalize(null),
+      },
+    });
+  });
+}
 
 function readSessionStorage(key: string): string {
   if (typeof window === "undefined") return "";
@@ -30,10 +132,34 @@ function readCachedResults(): YouTubeSearchResponse | null {
   }
 }
 
+function readDurationCache(): Record<string, number> {
+  if (typeof window === "undefined") return {};
+  const raw = sessionStorage.getItem(SEARCH_DURATIONS_KEY);
+  if (!raw) return {};
+
+  try {
+    const parsed = JSON.parse(raw) as Record<string, number>;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function formatDuration(sec: number): string {
+  const s = Math.max(0, Math.floor(sec));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const r = s % 60;
+
+  if (h > 0) return `${h}:${m.toString().padStart(2, "0")}:${r.toString().padStart(2, "0")}`;
+  return `${m}:${r.toString().padStart(2, "0")}`;
+}
+
 export function SearchPage() {
   const [q, setQ] = useState(() => readSessionStorage(SEARCH_TEXT_KEY));
   const [submitted, setSubmitted] = useState(() => readSessionStorage(SEARCH_SUBMITTED_KEY));
   const [cachedResults, setCachedResults] = useState<YouTubeSearchResponse | null>(() => readCachedResults());
+  const [durationCache, setDurationCache] = useState<Record<string, number>>(() => readDurationCache());
 
   const nav = useNavigate();
 
@@ -57,11 +183,44 @@ export function SearchPage() {
     sessionStorage.setItem(SEARCH_RESULTS_KEY, JSON.stringify(data));
   }, [data]);
 
+  useEffect(() => {
+    sessionStorage.setItem(SEARCH_DURATIONS_KEY, JSON.stringify(durationCache));
+  }, [durationCache]);
+
   const visibleResults = useMemo(() => {
     if (data) return data;
     if (cachedResults && cachedResults.query === submitted) return cachedResults;
     return null;
   }, [data, cachedResults, submitted]);
+
+  useEffect(() => {
+    if (!visibleResults?.videos?.length) return;
+
+    const ids = visibleResults.videos
+      .map((v) => v.videoId)
+      .filter((id) => durationCache[id] == null);
+
+    if (ids.length === 0) return;
+
+    let cancelled = false;
+
+    (async () => {
+      for (const id of ids) {
+        if (cancelled) return;
+        const sec = await fetchVideoDurationSec(id);
+        if (cancelled || sec == null) continue;
+
+        setDurationCache((prev) => {
+          if (prev[id] != null) return prev;
+          return { ...prev, [id]: sec };
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [visibleResults, durationCache]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -134,27 +293,33 @@ export function SearchPage() {
             {visibleResults.count} results for "{visibleResults.query}"
           </p>
           <div className="ct-video-grid">
-            {visibleResults.videos.map((v) => (
-              <div
-                key={v.videoId}
-                className="ct-video-card"
-                onClick={() => nav(`/watch/${v.videoId}`, { state: { videoTitle: v.title } })}
-                id={`video-card-${v.videoId}`}
-              >
-                <img
-                  src={`https://img.youtube.com/vi/${v.videoId}/mqdefault.jpg`}
-                  alt={v.title}
-                  className="ct-video-card-thumb"
-                />
-                <div className="ct-video-card-body">
-                  <div className="ct-video-card-title">{v.title}</div>
-                  <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 6 }}>
-                    <Play size={12} style={{ color: "var(--ct-accent-light)" }} />
-                    <span style={{ fontSize: 12, color: "var(--ct-text-muted)" }}>Click to start watching</span>
+            {visibleResults.videos.map((v) => {
+              const durationSec = v.videoDurationSec ?? durationCache[v.videoId];
+
+              return (
+                <div
+                  key={v.videoId}
+                  className="ct-video-card"
+                  onClick={() => nav(`/watch/${v.videoId}`, { state: { videoTitle: v.title } })}
+                  id={`video-card-${v.videoId}`}
+                >
+                  <img
+                    src={`https://img.youtube.com/vi/${v.videoId}/mqdefault.jpg`}
+                    alt={v.title}
+                    className="ct-video-card-thumb"
+                  />
+                  <div className="ct-video-card-body">
+                    <div className="ct-video-card-title">{v.title}</div>
+                    <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                      <Play size={12} style={{ color: "var(--ct-accent-light)" }} />
+                      <span style={{ fontSize: 12, color: "var(--ct-text-muted)" }}>
+                        {durationSec != null ? `${formatDuration(durationSec)} - Click to start watching` : "Click to start watching"}
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </>
       )}
