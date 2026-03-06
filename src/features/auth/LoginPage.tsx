@@ -2,14 +2,14 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { LogIn } from "lucide-react";
 import toast from "react-hot-toast";
-import { login as apiLogin } from "../../api/auth";
+import { login as apiLogin, getMe } from "../../api/auth";
 import { useAuthStore } from "../../store/useAuthStore";
 
 export function LoginPage() {
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [loading, setLoading] = useState(false);
-    const { setAuth } = useAuthStore();
+    const { setAuth, setUser } = useAuthStore();
     const navigate = useNavigate();
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -22,6 +22,12 @@ export function LoginPage() {
         try {
             const res = await apiLogin(email, password);
             setAuth(res.token, { userId: res.userId, email: res.email, role: res.role });
+            try {
+                const me = await getMe();
+                setUser(me);
+            } catch {
+                // fallback to auth response payload already stored above
+            }
             toast.success("Welcome back!");
             navigate("/home");
         } catch (err: any) {

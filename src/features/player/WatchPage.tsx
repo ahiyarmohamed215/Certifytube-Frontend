@@ -32,6 +32,11 @@ export function WatchPage() {
   const playerRef = useRef<any>(null);
   const canLog = Boolean(sessionId && !sessionEnded);
 
+  const toLocalIsoWithoutTz = (d: Date) => {
+    const pad = (n: number) => n.toString().padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  };
+
   const { enqueue, flush, startTimer, stopTimer } = useEventBatcher({
     enabled: canLog,
     flushIntervalMs: 5000,
@@ -44,7 +49,11 @@ export function WatchPage() {
     playerState,
     playbackRate: playerRef.current?.getPlaybackRate?.() || 1,
     currentTimeSec: playerRef.current?.getCurrentTime?.() || currentTime,
-    videoDurationSec: playerRef.current?.getDuration?.() || duration,
+    videoDurationSec: (playerRef.current?.getDuration?.() || duration) > 0
+      ? (playerRef.current?.getDuration?.() || duration)
+      : undefined,
+    clientCreatedAtLocal: toLocalIsoWithoutTz(new Date()),
+    clientTzOffsetMin: new Date().getTimezoneOffset(),
     clientEventMs: performance.now(),
     ...extras,
   });
@@ -146,6 +155,13 @@ export function WatchPage() {
     }
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const onPlaybackRateChange = (e: any) => {
+    if (!canLog) return;
+    const rate = Number(e?.data);
+    enqueue(makeEvent("ratechange", { playbackRate: Number.isFinite(rate) ? rate : 1 }));
+  };
+
   const handleEndSession = async () => {
     if (!sessionId || sessionEnded) return;
     stopTimer();
@@ -188,6 +204,7 @@ export function WatchPage() {
           videoId={videoId}
           onReady={onReady}
           onStateChange={onStateChange}
+          onPlaybackRateChange={onPlaybackRateChange}
           opts={{
             width: "100%",
             height: "500",

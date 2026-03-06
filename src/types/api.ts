@@ -87,7 +87,9 @@ export interface EventPayload {
   playerState: number; // 1=playing, 2=paused, 3=buffering, 0=ended
   playbackRate: number;
   currentTimeSec: number;
-  videoDurationSec: number;
+  videoDurationSec?: number;
+  clientCreatedAtLocal?: string;
+  clientTzOffsetMin?: number;
   clientEventMs: number; // performance.now()
   seekFromSec?: number | null;
   seekToSec?: number | null;

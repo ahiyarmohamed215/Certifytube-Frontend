@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { UserPlus } from "lucide-react";
 import toast from "react-hot-toast";
-import { signup as apiSignup } from "../../api/auth";
+import { signup as apiSignup, getMe } from "../../api/auth";
 import { useAuthStore } from "../../store/useAuthStore";
 
 export function SignupPage() {
@@ -10,7 +10,7 @@ export function SignupPage() {
     const [password, setPassword] = useState("");
     const [confirm, setConfirm] = useState("");
     const [loading, setLoading] = useState(false);
-    const { setAuth } = useAuthStore();
+    const { setAuth, setUser } = useAuthStore();
     const navigate = useNavigate();
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -27,6 +27,12 @@ export function SignupPage() {
         try {
             const res = await apiSignup(email, password);
             setAuth(res.token, { userId: res.userId, email: res.email, role: res.role });
+            try {
+                const me = await getMe();
+                setUser(me);
+            } catch {
+                // fallback to auth response payload already stored above
+            }
             toast.success("Account created!");
             navigate("/home");
         } catch (err: any) {

@@ -35,7 +35,7 @@ function getActionPath(v: DashboardVideo) {
     switch (v.status) {
         case "ACTIVE": return `/watch/${v.videoId}`;
         case "COMPLETED": return `/analyze/${v.sessionId}`;
-        case "QUIZ_PENDING": return `/analyze/${v.sessionId}`;
+        case "QUIZ_PENDING": return `/quiz/${v.sessionId}`;
         case "CERTIFIED": return `/certificate/${v.certificateId}`;
     }
 }
@@ -136,7 +136,11 @@ export function HomePage() {
                     </div>
                 ) : (
                     activeVideos.map((v) => (
-                        <VideoRow key={v.sessionId} v={v} onClick={() => nav(getActionPath(v))} />
+                        <VideoRow
+                            key={v.sessionId}
+                            v={v}
+                            onClick={() => nav(getActionPath(v), v.status === "QUIZ_PENDING" ? { state: { sessionId: v.sessionId } } : undefined)}
+                        />
                     ))
                 )}
             </div>
@@ -157,7 +161,11 @@ export function HomePage() {
                     </div>
                 ) : (
                     historyVideos.map((v) => (
-                        <VideoRow key={v.sessionId} v={v} onClick={() => nav(getActionPath(v))} />
+                        <VideoRow
+                            key={v.sessionId}
+                            v={v}
+                            onClick={() => nav(getActionPath(v), v.status === "QUIZ_PENDING" ? { state: { sessionId: v.sessionId } } : undefined)}
+                        />
                     ))
                 )}
             </div>

@@ -9,7 +9,7 @@ export function QuizPage() {
   const { quizId } = useParams();
   const nav = useNavigate();
   const location = useLocation();
-  const sessionIdFromState = (location.state as any)?.sessionId;
+  const sessionIdFromState = (location.state as { sessionId?: string } | null)?.sessionId;
 
   const [quiz, setQuiz] = useState<QuizGenerateResponse | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -17,14 +17,24 @@ export function QuizPage() {
   const [submitting, setSubmitting] = useState(false);
   const [difficulty, setDifficulty] = useState<"easy" | "medium" | "hard">("medium");
   const [needsGenerate, setNeedsGenerate] = useState(false);
-
-  // Determine if quizId is actually a sessionId (from analyze page navigation)
-  const isSessionId = quizId === sessionIdFromState;
+  const [sessionIdForGenerate, setSessionIdForGenerate] = useState<string | null>(
+    sessionIdFromState ?? null
+  );
 
   // If we have a real quizId, load the quiz
   useEffect(() => {
-    if (!quizId || isSessionId) {
+    if (!quizId) {
+      setNeedsGenerate(false);
+      setQuiz(null);
+      return;
+    }
+
+    let cancelled = false;
+    setSessionIdForGenerate(sessionIdFromState ?? quizId);
+
+    if (sessionIdFromState && quizId === sessionIdFromState) {
       setNeedsGenerate(true);
+      setQuiz(null);
       return;
     }
 
@@ -32,15 +42,25 @@ export function QuizPage() {
     (async () => {
       try {
         const q = await getQuiz(quizId);
+        if (cancelled) return;
         setQuiz(q);
+        setSessionIdForGenerate(q.sessionId);
+        setNeedsGenerate(false);
       } catch {
+        if (cancelled) return;
         setNeedsGenerate(true);
+        setQuiz(null);
+        setSessionIdForGenerate(sessionIdFromState ?? quizId);
       }
     })();
-  }, [quizId, isSessionId]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [quizId, sessionIdFromState]);
 
   const handleGenerate = async () => {
-    const sid = isSessionId ? quizId : sessionIdFromState;
+    const sid = sessionIdForGenerate;
     if (!sid) {
       toast.error("Missing session ID");
       return;
@@ -51,9 +71,10 @@ export function QuizPage() {
       setQuiz(q);
       setAnswers({});
       setNeedsGenerate(false);
+      setSessionIdForGenerate(q.sessionId);
       toast.success("Quiz generated!");
       // Update URL to reflect real quizId
-      nav(`/quiz/${q.quizId}`, { replace: true, state: { sessionId: sid } });
+      nav(`/quiz/${q.quizId}`, { replace: true, state: { sessionId: q.sessionId } });
     } catch (e: any) {
       toast.error(e?.message || "Failed to generate quiz");
     } finally {

@@ -1,4 +1,4 @@
-import { PropsWithChildren } from "react";
+import type { PropsWithChildren } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Search, Home, Shield, LogOut, LogIn, UserPlus } from "lucide-react";
 import { useAuthStore } from "../store/useAuthStore";
