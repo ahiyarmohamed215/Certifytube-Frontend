@@ -303,17 +303,22 @@ export function SearchPage() {
                   onClick={() => nav(`/watch/${v.videoId}`, { state: { videoTitle: v.title } })}
                   id={`video-card-${v.videoId}`}
                 >
-                  <img
-                    src={`https://img.youtube.com/vi/${v.videoId}/mqdefault.jpg`}
-                    alt={v.title}
-                    className="ct-video-card-thumb"
-                  />
+                  <div className="ct-video-card-thumb-wrap">
+                    <img
+                      src={`https://img.youtube.com/vi/${v.videoId}/mqdefault.jpg`}
+                      alt={v.title}
+                      className="ct-video-card-thumb"
+                    />
+                    {durationSec != null && (
+                      <span className="ct-video-duration">{formatDuration(durationSec)}</span>
+                    )}
+                  </div>
                   <div className="ct-video-card-body">
                     <div className="ct-video-card-title">{v.title}</div>
                     <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 6 }}>
                       <Play size={12} style={{ color: "var(--ct-accent-light)" }} />
                       <span style={{ fontSize: 12, color: "var(--ct-text-muted)" }}>
-                        {durationSec != null ? `${formatDuration(durationSec)} - Click to start watching` : "Click to start watching"}
+                        Click to start watching
                       </span>
                     </div>
                   </div>

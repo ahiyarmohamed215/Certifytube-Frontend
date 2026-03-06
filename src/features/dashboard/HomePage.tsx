@@ -197,7 +197,6 @@ export function MyLearningsPage() {
   const activeVideos = useMemo(() => data?.activeVideos || [], [data]);
   const completedVideos = useMemo(() => data?.completedVideos || [], [data]);
   const quizPendingVideos = useMemo(() => data?.quizPendingVideos || [], [data]);
-  const certifiedVideos = useMemo(() => data?.certifiedVideos || [], [data]);
 
   const openVideo = (v: DashboardVideo) => {
     const action = actionFor(v);
@@ -207,13 +206,12 @@ export function MyLearningsPage() {
   return (
     <div className="ct-slide-up">
       <h1 className="ct-page-title">My Learnings</h1>
-      <p className="ct-page-subtitle">Track status for every video: active, completed, quiz pending, and certified.</p>
+      <p className="ct-page-subtitle">Track status for every video: active, completed, and quiz pending.</p>
 
       <div className="ct-stat-grid" style={{ marginBottom: 24 }}>
         <div className="ct-stat-card"><div className="ct-stat-value">{activeVideos.length}</div><div className="ct-stat-label">Active</div></div>
         <div className="ct-stat-card"><div className="ct-stat-value">{completedVideos.length}</div><div className="ct-stat-label">Completed</div></div>
         <div className="ct-stat-card"><div className="ct-stat-value">{quizPendingVideos.length}</div><div className="ct-stat-label">Quiz Pending</div></div>
-        <div className="ct-stat-card"><div className="ct-stat-value">{certifiedVideos.length}</div><div className="ct-stat-label">Certified</div></div>
       </div>
 
       {isLoading ? (
@@ -241,14 +239,6 @@ export function MyLearningsPage() {
             icon={<BookOpen size={20} style={{ color: "var(--ct-accent-light)" }} />}
             videos={completedVideos}
             emptyText="No completed sessions yet."
-            onOpen={openVideo}
-          />
-
-          <Section
-            title="Certified"
-            icon={<Award size={20} style={{ color: "var(--ct-success)" }} />}
-            videos={certifiedVideos}
-            emptyText="No certificates yet."
             onOpen={openVideo}
           />
         </>

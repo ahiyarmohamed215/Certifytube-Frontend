@@ -12,6 +12,7 @@ import { CertificatePage } from "../features/certificate/CertificatePage";
 import { VerifyPage } from "../features/verify/VerifyPage";
 import { AdminPage } from "../features/admin/AdminPage";
 import { ProfilePage } from "../features/profile/ProfilePage";
+import { CertifiedPage } from "../features/certified/CertifiedPage";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem("ct_token");
@@ -34,6 +35,7 @@ export const router = createBrowserRouter([
   // Protected
   { path: "/home", element: wrap(<SearchPage />, true) },
   { path: "/my-learnings", element: wrap(<MyLearningsPage />, true) },
+  { path: "/certified", element: wrap(<CertifiedPage />, true) },
   { path: "/profile", element: wrap(<ProfilePage />, true) },
   { path: "/watch/:videoId", element: wrap(<WatchPage />, true) },
   { path: "/analyze/:sessionId", element: wrap(<AnalyzePage />, true) },

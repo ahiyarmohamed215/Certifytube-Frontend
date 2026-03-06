@@ -1,6 +1,6 @@
 import type { PropsWithChildren } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Home, BookOpen, User, Shield, LogOut, LogIn, UserPlus } from "lucide-react";
+import { Home, BookOpen, Award, User, Shield, LogOut, LogIn, UserPlus } from "lucide-react";
 import { useAuthStore } from "../store/useAuthStore";
 import { logout as apiLogout } from "../api/auth";
 import toast from "react-hot-toast";
@@ -15,7 +15,8 @@ export function AppShell({ children }: PropsWithChildren) {
     || location.pathname.startsWith("/watch/")
     || location.pathname.startsWith("/analyze/")
     || location.pathname.startsWith("/quiz/")
-    || location.pathname.startsWith("/result/")
+    || location.pathname.startsWith("/result/");
+  const isCertifiedActive = location.pathname === "/certified"
     || location.pathname.startsWith("/certificate/");
   const isProfileActive = location.pathname === "/profile";
 
@@ -56,6 +57,16 @@ export function AppShell({ children }: PropsWithChildren) {
               >
                 <BookOpen size={15} style={{ marginRight: 4, verticalAlign: "middle" }} />
                 My Learnings
+              </Link>
+            )}
+
+            {isLoggedIn && (
+              <Link
+                to="/certified"
+                className={`ct-nav-link ${isCertifiedActive ? "active" : ""}`}
+              >
+                <Award size={15} style={{ marginRight: 4, verticalAlign: "middle" }} />
+                Certified
               </Link>
             )}
 
