@@ -2,8 +2,8 @@ import { useMemo, useState, useEffect } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { ClipboardCheck, ArrowLeft, Send, RotateCcw } from "lucide-react";
 import toast from "react-hot-toast";
-import { generateQuiz, submitQuiz, getQuiz } from "../../api/quiz";
-import type { QuizGenerateResponse, QuizQuestion } from "../../types/quiz";
+import { generateQuiz, submitQuiz, getQuiz, getQuizEligibility } from "../../api/quiz";
+import type { QuizGenerateResponse, QuizQuestion, QuizEligibility } from "../../types/quiz";
 
 export function QuizPage() {
   const { quizId } = useParams();
@@ -20,6 +20,8 @@ export function QuizPage() {
   const [sessionIdForGenerate, setSessionIdForGenerate] = useState<string | null>(
     sessionIdFromState ?? null
   );
+  const [eligibility, setEligibility] = useState<QuizEligibility | null>(null);
+  const [eligibilityLoading, setEligibilityLoading] = useState(false);
 
   // If we have a real quizId, load the quiz
   useEffect(() => {
@@ -59,12 +61,53 @@ export function QuizPage() {
     };
   }, [quizId, sessionIdFromState]);
 
+  // Load eligibility before quiz generation flow
+  useEffect(() => {
+    if (!needsGenerate || quiz || !sessionIdForGenerate) {
+      setEligibility(null);
+      return;
+    }
+
+    let cancelled = false;
+    setEligibilityLoading(true);
+
+    (async () => {
+      try {
+        const res = await getQuizEligibility(sessionIdForGenerate);
+        if (cancelled) return;
+        setEligibility(res);
+      } catch (e: any) {
+        if (cancelled) return;
+        setEligibility(null);
+        toast.error(e?.message || "Failed to check quiz eligibility");
+      } finally {
+        if (!cancelled) setEligibilityLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [needsGenerate, quiz, sessionIdForGenerate]);
+
   const handleGenerate = async () => {
     const sid = sessionIdForGenerate;
     if (!sid) {
       toast.error("Missing session ID");
       return;
     }
+    try {
+      const check = await getQuizEligibility(sid);
+      setEligibility(check);
+      if (!check.eligible) {
+        toast.error(check.reason || "Not eligible to generate quiz");
+        return;
+      }
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to check quiz eligibility");
+      return;
+    }
+
     setGenerating(true);
     try {
       const q = await generateQuiz({ sessionId: sid, difficulty });
@@ -135,6 +178,21 @@ export function QuizPage() {
           <p style={{ marginBottom: 20, color: "var(--ct-text-secondary)" }}>
             Generate a quiz to test your knowledge of the video content
           </p>
+          {eligibilityLoading && (
+            <p style={{ marginBottom: 16, fontSize: 13, color: "var(--ct-text-muted)" }}>
+              Checking eligibility…
+            </p>
+          )}
+          {!eligibilityLoading && eligibility && !eligibility.eligible && (
+            <div className="ct-banner ct-banner-warning" style={{ marginBottom: 16, textAlign: "left" }}>
+              <span>{eligibility.reason}</span>
+            </div>
+          )}
+          {!eligibilityLoading && eligibility?.eligible && (
+            <p style={{ marginBottom: 16, fontSize: 13, color: "var(--ct-text-muted)" }}>
+              Attempts remaining: {eligibility.remainingAttempts}
+            </p>
+          )}
           <div style={{ display: "flex", gap: 12, justifyContent: "center", alignItems: "center", marginBottom: 20 }}>
             <label className="ct-form-label" style={{ margin: 0 }}>Difficulty:</label>
             <select className="ct-select" value={difficulty} onChange={(e) => setDifficulty(e.target.value as any)}>
@@ -146,7 +204,7 @@ export function QuizPage() {
           <button
             className="ct-btn ct-btn-primary ct-btn-lg"
             onClick={handleGenerate}
-            disabled={generating}
+            disabled={generating || eligibilityLoading || (eligibility ? !eligibility.eligible : true)}
             id="generate-quiz-btn"
           >
             {generating ? "Generating…" : "Generate Quiz"}

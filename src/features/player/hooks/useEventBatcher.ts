@@ -13,17 +13,19 @@ export function useEventBatcher({ enabled, flushIntervalMs = 5000, maxBatchSize 
   const flushingRef = useRef(false);
   const timerRef = useRef<number | null>(null);
 
-  const flush = useCallback(async () => {
-    if (!enabled || flushingRef.current || queueRef.current.length === 0) return;
+  const flush = useCallback(async (): Promise<boolean> => {
+    if (!enabled || flushingRef.current || queueRef.current.length === 0) return true;
 
     flushingRef.current = true;
     const batch = queueRef.current.splice(0, queueRef.current.length);
 
     try {
       await sendEventBatch(batch);
+      return true;
     } catch {
       // re-queue on failure
       queueRef.current = [...batch, ...queueRef.current];
+      return false;
     } finally {
       flushingRef.current = false;
     }
@@ -52,5 +54,7 @@ export function useEventBatcher({ enabled, flushIntervalMs = 5000, maxBatchSize 
     }
   }, []);
 
-  return { enqueue, flush, startTimer, stopTimer };
+  const getPendingCount = useCallback(() => queueRef.current.length, []);
+
+  return { enqueue, flush, startTimer, stopTimer, getPendingCount };
 }
