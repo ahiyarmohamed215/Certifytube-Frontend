@@ -25,14 +25,16 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         position="top-right"
         toastOptions={{
           style: {
-            background: "#1a2236",
-            color: "#f1f5f9",
-            border: "1px solid rgba(99, 102, 241, 0.2)",
+            background: "#ffffff",
+            color: "#112640",
+            border: "1px solid rgba(255, 0, 51, 0.22)",
             borderRadius: "12px",
             fontSize: "14px",
+            boxShadow: "0 8px 22px rgba(17, 38, 64, 0.12)",
           },
         }}
       />
     </QueryClientProvider>
   </React.StrictMode>
 );
+

@@ -1,6 +1,6 @@
 import type { PropsWithChildren } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Search, Home, Shield, LogOut, LogIn, UserPlus } from "lucide-react";
+import { Home, BookOpen, User, Shield, LogOut, LogIn, UserPlus } from "lucide-react";
 import { useAuthStore } from "../store/useAuthStore";
 import { logout as apiLogout } from "../api/auth";
 import toast from "react-hot-toast";
@@ -10,7 +10,14 @@ export function AppShell({ children }: PropsWithChildren) {
   const navigate = useNavigate();
   const { isLoggedIn, user, clearAuth } = useAuthStore();
 
-  const isActive = (path: string) => location.pathname === path;
+  const isHomeActive = location.pathname === "/" || location.pathname === "/home";
+  const isLearnActive = location.pathname === "/my-learnings"
+    || location.pathname.startsWith("/watch/")
+    || location.pathname.startsWith("/analyze/")
+    || location.pathname.startsWith("/quiz/")
+    || location.pathname.startsWith("/result/")
+    || location.pathname.startsWith("/certificate/");
+  const isProfileActive = location.pathname === "/profile";
 
   const handleLogout = async () => {
     try {
@@ -27,33 +34,45 @@ export function AppShell({ children }: PropsWithChildren) {
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <header className="ct-header">
         <div className="ct-header-inner">
-          <Link to="/" className="ct-logo">
-            CertifyTube
+          <Link to={isLoggedIn ? "/home" : "/"} className="ct-logo">
+            certifytube
           </Link>
 
           <nav className="ct-nav">
-            <Link
-              to="/"
-              className={`ct-nav-link ${isActive("/") ? "active" : ""}`}
-            >
-              <Search size={15} style={{ marginRight: 4, verticalAlign: "middle" }} />
-              Search
-            </Link>
-
             {isLoggedIn && (
               <Link
                 to="/home"
-                className={`ct-nav-link ${isActive("/home") ? "active" : ""}`}
+                className={`ct-nav-link ${isHomeActive ? "active" : ""}`}
               >
                 <Home size={15} style={{ marginRight: 4, verticalAlign: "middle" }} />
-                Dashboard
+                Home
+              </Link>
+            )}
+
+            {isLoggedIn && (
+              <Link
+                to="/my-learnings"
+                className={`ct-nav-link ${isLearnActive ? "active" : ""}`}
+              >
+                <BookOpen size={15} style={{ marginRight: 4, verticalAlign: "middle" }} />
+                My Learnings
+              </Link>
+            )}
+
+            {isLoggedIn && (
+              <Link
+                to="/profile"
+                className={`ct-nav-link ${isProfileActive ? "active" : ""}`}
+              >
+                <User size={15} style={{ marginRight: 4, verticalAlign: "middle" }} />
+                Profile
               </Link>
             )}
 
             {isLoggedIn && user?.role === "ADMIN" && (
               <Link
                 to="/admin"
-                className={`ct-nav-link ${isActive("/admin") ? "active" : ""}`}
+                className={`ct-nav-link ${location.pathname === "/admin" ? "active" : ""}`}
               >
                 <Shield size={15} style={{ marginRight: 4, verticalAlign: "middle" }} />
                 Admin
@@ -62,7 +81,6 @@ export function AppShell({ children }: PropsWithChildren) {
 
             {isLoggedIn ? (
               <div className="ct-nav-user">
-                <span className="ct-nav-email">{user?.email}</span>
                 <button
                   className="ct-btn ct-btn-ghost ct-btn-sm"
                   onClick={handleLogout}
@@ -73,6 +91,10 @@ export function AppShell({ children }: PropsWithChildren) {
               </div>
             ) : (
               <div className="ct-nav-user">
+                <Link to="/" className={`ct-nav-link ${isHomeActive ? "active" : ""}`}>
+                  <Home size={15} style={{ marginRight: 4, verticalAlign: "middle" }} />
+                  Home
+                </Link>
                 <Link to="/login" className="ct-btn ct-btn-ghost ct-btn-sm">
                   <LogIn size={14} />
                   Login

@@ -59,8 +59,8 @@ export function CertificatePage() {
 
   return (
     <div className="ct-slide-up" style={{ maxWidth: 600, margin: "0 auto" }}>
-      <button className="ct-btn ct-btn-ghost ct-btn-sm" onClick={() => nav("/home")} style={{ marginBottom: 16 }}>
-        <ArrowLeft size={14} /> Dashboard
+      <button className="ct-btn ct-btn-ghost ct-btn-sm" onClick={() => nav("/my-learnings")} style={{ marginBottom: 16 }}>
+        <ArrowLeft size={14} /> My Learnings
       </button>
 
       <div className="ct-glass-card" style={{ textAlign: "center" }}>

@@ -38,8 +38,8 @@ export function AnalyzePage() {
 
     return (
         <div className="ct-slide-up" style={{ maxWidth: 700, margin: "0 auto" }}>
-            <button className="ct-btn ct-btn-ghost ct-btn-sm" onClick={() => nav("/home")} style={{ marginBottom: 16 }}>
-                <ArrowLeft size={14} /> Back to Dashboard
+            <button className="ct-btn ct-btn-ghost ct-btn-sm" onClick={() => nav("/my-learnings")} style={{ marginBottom: 16 }}>
+                <ArrowLeft size={14} /> Back to My Learnings
             </button>
 
             <h1 className="ct-page-title">Engagement Analysis</h1>
@@ -125,8 +125,8 @@ export function AnalyzePage() {
                                 <ClipboardCheck size={18} /> Take Quiz
                             </button>
                         )}
-                        <button className="ct-btn ct-btn-secondary" onClick={() => nav("/home")}>
-                            Back to Dashboard
+                        <button className="ct-btn ct-btn-secondary" onClick={() => nav("/my-learnings")}>
+                            Back to My Learnings
                         </button>
                     </div>
                 </div>

@@ -130,8 +130,8 @@ export function ResultPage() {
                         <Share2 size={16} /> Copy Verification Link
                     </button>
                 )}
-                <button className="ct-btn ct-btn-ghost" onClick={() => nav("/home")}>
-                    <Home size={16} /> Dashboard
+                <button className="ct-btn ct-btn-ghost" onClick={() => nav("/my-learnings")}>
+                    <Home size={16} /> My Learnings
                 </button>
             </div>
         </div>

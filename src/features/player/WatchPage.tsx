@@ -160,23 +160,23 @@ export function WatchPage() {
       }
       stopTimer();
 
-      // Contract order: flush final events -> end session.
-      const flushOkFirst = await flush();
-      const flushOkSecond = getPendingCount() > 0 ? await flush() : true;
-      const pending = getPendingCount();
-
-      if (pending > 0) {
-        if (mountedRef.current && !opts?.silent) {
-          if (!flushOkFirst || !flushOkSecond) {
-            toast.error("Could not sync watch events. Check connection and try End Session again.");
-          } else {
-            toast.error("Pending watch events remain. Please click End Session again.");
-          }
-        }
-        return;
-      }
-
       try {
+        // Contract order: flush final events -> end session.
+        const flushOkFirst = await flush();
+        const flushOkSecond = getPendingCount() > 0 ? await flush() : true;
+        const pending = getPendingCount();
+
+        if (pending > 0) {
+          if (mountedRef.current && !opts?.silent) {
+            if (!flushOkFirst || !flushOkSecond) {
+              toast.error("Could not sync watch events. Check connection and try End Session again.");
+            } else {
+              toast.error("Pending watch events remain. Please click End Session again.");
+            }
+          }
+          return;
+        }
+
         await endSession(sid);
         sessionEndedRef.current = true;
         if (mountedRef.current && !opts?.silent) {

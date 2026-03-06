@@ -1,13 +1,40 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Search as SearchIcon, Play } from "lucide-react";
 import toast from "react-hot-toast";
+
 import { youtubeSearch } from "../../api/youtube";
+import type { YouTubeSearchResponse } from "../../types/api";
+
+const SEARCH_TEXT_KEY = "ct_home_search_text";
+const SEARCH_SUBMITTED_KEY = "ct_home_search_submitted";
+const SEARCH_RESULTS_KEY = "ct_home_search_results";
+
+function readSessionStorage(key: string): string {
+  if (typeof window === "undefined") return "";
+  return sessionStorage.getItem(key) || "";
+}
+
+function readCachedResults(): YouTubeSearchResponse | null {
+  if (typeof window === "undefined") return null;
+  const raw = sessionStorage.getItem(SEARCH_RESULTS_KEY);
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as YouTubeSearchResponse;
+    if (!parsed || !Array.isArray(parsed.videos)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
 
 export function SearchPage() {
-  const [q, setQ] = useState("");
-  const [submitted, setSubmitted] = useState("");
+  const [q, setQ] = useState(() => readSessionStorage(SEARCH_TEXT_KEY));
+  const [submitted, setSubmitted] = useState(() => readSessionStorage(SEARCH_SUBMITTED_KEY));
+  const [cachedResults, setCachedResults] = useState<YouTubeSearchResponse | null>(() => readCachedResults());
+
   const nav = useNavigate();
 
   const { data, isLoading, isError } = useQuery({
@@ -16,34 +43,43 @@ export function SearchPage() {
     enabled: submitted.trim().length > 0,
   });
 
+  useEffect(() => {
+    sessionStorage.setItem(SEARCH_TEXT_KEY, q);
+  }, [q]);
+
+  useEffect(() => {
+    sessionStorage.setItem(SEARCH_SUBMITTED_KEY, submitted);
+  }, [submitted]);
+
+  useEffect(() => {
+    if (!data) return;
+    setCachedResults(data);
+    sessionStorage.setItem(SEARCH_RESULTS_KEY, JSON.stringify(data));
+  }, [data]);
+
+  const visibleResults = useMemo(() => {
+    if (data) return data;
+    if (cachedResults && cachedResults.query === submitted) return cachedResults;
+    return null;
+  }, [data, cachedResults, submitted]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const t = q.trim();
-    if (!t) {
+    const text = q.trim();
+
+    if (!text) {
       toast.error("Enter a search term");
       return;
     }
-    setSubmitted(t);
+
+    setSubmitted(text);
   };
 
   return (
     <div className="ct-slide-up">
-      <div style={{ textAlign: "center", marginBottom: 40 }}>
-        <h1 className="ct-page-title">
-          Learn. Watch. Get{" "}
-          <span style={{ background: "var(--ct-gradient)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
-            Certified
-          </span>
-        </h1>
-        <p className="ct-page-subtitle">
-          Search for STEM videos, prove your engagement, and earn verifiable certificates
-        </p>
-      </div>
+      <h1 className="ct-page-title" style={{ marginBottom: 18 }}>Home</h1>
 
-      <form
-        onSubmit={handleSubmit}
-        style={{ display: "flex", gap: 12, maxWidth: 640, margin: "0 auto 40px" }}
-      >
+      <form onSubmit={handleSubmit} style={{ display: "flex", gap: 12, maxWidth: 760, marginBottom: 24 }}>
         <div style={{ position: "relative", flex: 1 }}>
           <SearchIcon
             size={18}
@@ -60,11 +96,12 @@ export function SearchPage() {
             style={{ paddingLeft: 42 }}
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search for videos… e.g. 'Machine Learning', 'React Hooks'"
+            placeholder="Search videos... e.g. object oriented programming"
             id="search-input"
             autoFocus
           />
         </div>
+
         <button type="submit" className="ct-btn ct-btn-primary" id="search-submit">
           <SearchIcon size={16} />
           Search
@@ -74,30 +111,30 @@ export function SearchPage() {
       {isLoading && (
         <div className="ct-loading">
           <div className="ct-spinner" />
-          <span>Searching videos…</span>
+          <span>Searching videos...</span>
         </div>
       )}
 
       {isError && (
-        <div className="ct-banner ct-banner-error" style={{ maxWidth: 640, margin: "0 auto" }}>
+        <div className="ct-banner ct-banner-error" style={{ maxWidth: 760 }}>
           Search failed. Please try again.
         </div>
       )}
 
-      {!isLoading && data && data.videos?.length === 0 && (
+      {!isLoading && visibleResults && visibleResults.videos?.length === 0 && (
         <div className="ct-empty">
-          <div className="ct-empty-icon">🔍</div>
-          <p>No videos found for "{submitted}"</p>
+          <div className="ct-empty-icon">Search</div>
+          <p>No videos found for "{visibleResults.query}"</p>
         </div>
       )}
 
-      {data && data.videos && data.videos.length > 0 && (
+      {visibleResults && visibleResults.videos && visibleResults.videos.length > 0 && (
         <>
           <p style={{ fontSize: 13, color: "var(--ct-text-muted)", marginBottom: 16 }}>
-            {data.count} results for "{data.query}"
+            {visibleResults.count} results for "{visibleResults.query}"
           </p>
           <div className="ct-video-grid">
-            {data.videos.map((v) => (
+            {visibleResults.videos.map((v) => (
               <div
                 key={v.videoId}
                 className="ct-video-card"

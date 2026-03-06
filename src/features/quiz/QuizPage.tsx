@@ -156,8 +156,8 @@ export function QuizPage() {
 
   return (
     <div className="ct-slide-up" style={{ maxWidth: 800, margin: "0 auto" }}>
-      <button className="ct-btn ct-btn-ghost ct-btn-sm" onClick={() => nav("/home")} style={{ marginBottom: 16 }}>
-        <ArrowLeft size={14} /> Dashboard
+      <button className="ct-btn ct-btn-ghost ct-btn-sm" onClick={() => nav("/my-learnings")} style={{ marginBottom: 16 }}>
+        <ArrowLeft size={14} /> My Learnings
       </button>
 
       <h1 className="ct-page-title">
