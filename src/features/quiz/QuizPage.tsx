@@ -116,7 +116,6 @@ export function QuizPage() {
       setNeedsGenerate(false);
       setSessionIdForGenerate(q.sessionId);
       toast.success("Quiz generated!");
-      // Update URL to reflect real quizId
       nav(`/quiz/${q.quizId}`, { replace: true, state: { sessionId: q.sessionId } });
     } catch (e: any) {
       toast.error(e?.message || "Failed to generate quiz");
@@ -187,6 +186,11 @@ export function QuizPage() {
             <div className="ct-banner ct-banner-warning" style={{ marginBottom: 16, textAlign: "left" }}>
               <span>{eligibility.reason}</span>
             </div>
+          )}
+          {!eligibilityLoading && eligibility && !eligibility.eligible && (
+            <button className="ct-btn ct-btn-secondary" onClick={() => nav("/my-learnings")} style={{ marginBottom: 16 }}>
+              Watch Again
+            </button>
           )}
           {!eligibilityLoading && eligibility?.eligible && (
             <p style={{ marginBottom: 16, fontSize: 13, color: "var(--ct-text-muted)" }}>

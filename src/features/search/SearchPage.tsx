@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { Search as SearchIcon, Play } from "lucide-react";
+import { Search as SearchIcon, Play, ClipboardPaste } from "lucide-react";
 import toast from "react-hot-toast";
 
 import { youtubeSearch } from "../../api/youtube";
@@ -155,6 +155,39 @@ function formatDuration(sec: number): string {
   return `${m}:${r.toString().padStart(2, "0")}`;
 }
 
+function extractYouTubeVideoId(input: string): string | null {
+  const raw = input.trim();
+  if (!raw) return null;
+
+  const isVideoId = /^[a-zA-Z0-9_-]{11}$/.test(raw);
+  if (isVideoId) return raw;
+
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+
+  const host = url.hostname.replace(/^www\./, "");
+  let id = "";
+
+  if (host === "youtu.be") {
+    id = url.pathname.split("/").filter(Boolean)[0] || "";
+  } else if (host === "youtube.com" || host === "m.youtube.com") {
+    if (url.pathname === "/watch") {
+      id = url.searchParams.get("v") || "";
+    } else {
+      const parts = url.pathname.split("/").filter(Boolean);
+      if (parts[0] === "embed" || parts[0] === "shorts" || parts[0] === "live") {
+        id = parts[1] || "";
+      }
+    }
+  }
+
+  return /^[a-zA-Z0-9_-]{11}$/.test(id) ? id : null;
+}
+
 export function SearchPage() {
   const [q, setQ] = useState(() => readSessionStorage(SEARCH_TEXT_KEY));
   const [submitted, setSubmitted] = useState(() => readSessionStorage(SEARCH_SUBMITTED_KEY));
@@ -231,41 +264,81 @@ export function SearchPage() {
       return;
     }
 
+    const pastedVideoId = extractYouTubeVideoId(text);
+    if (pastedVideoId) {
+      nav(`/watch/${pastedVideoId}`);
+      return;
+    }
+
     setSubmitted(text);
   };
 
+  const handlePasteUrl = async () => {
+    try {
+      const text = (await navigator.clipboard.readText()).trim();
+      if (!text) {
+        toast.error("Clipboard is empty");
+        return;
+      }
+      setQ(text);
+    } catch {
+      toast.error("Clipboard access blocked by browser");
+    }
+  };
+  const showCenteredHero = !isLoading && !isError && !visibleResults;
+
   return (
     <div className="ct-slide-up">
-      <h1 className="ct-page-title" style={{ marginBottom: 18 }}>Home</h1>
+      <div style={{ maxWidth: 980, margin: "0 auto", paddingTop: showCenteredHero ? "16vh" : 0 }}>
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 24 }}>
+          <form
+            onSubmit={handleSubmit}
+            style={{ display: "flex", gap: 12, width: "100%", maxWidth: 760 }}
+          >
+            <div style={{ position: "relative", flex: 1 }}>
+              <SearchIcon
+                size={18}
+                style={{
+                  position: "absolute",
+                  left: 14,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  color: "var(--ct-text-muted)",
+                }}
+              />
+              <input
+                className="ct-input"
+                style={{ paddingLeft: 42, paddingRight: 112, height: 46 }}
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Search topic or paste YouTube URL"
+                id="search-input"
+                autoFocus
+              />
+              <button
+                type="button"
+                onClick={handlePasteUrl}
+                className="ct-btn ct-btn-ghost ct-btn-sm"
+                style={{
+                  position: "absolute",
+                  right: 6,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  padding: "5px 10px",
+                }}
+              >
+                <ClipboardPaste size={13} />
+                Paste URL
+              </button>
+            </div>
 
-      <form onSubmit={handleSubmit} style={{ display: "flex", gap: 12, maxWidth: 760, marginBottom: 24 }}>
-        <div style={{ position: "relative", flex: 1 }}>
-          <SearchIcon
-            size={18}
-            style={{
-              position: "absolute",
-              left: 14,
-              top: "50%",
-              transform: "translateY(-50%)",
-              color: "var(--ct-text-muted)",
-            }}
-          />
-          <input
-            className="ct-input"
-            style={{ paddingLeft: 42 }}
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search videos... e.g. object oriented programming"
-            id="search-input"
-            autoFocus
-          />
+            <button type="submit" className="ct-btn ct-btn-primary" id="search-submit">
+              <SearchIcon size={16} />
+              Search
+            </button>
+          </form>
         </div>
-
-        <button type="submit" className="ct-btn ct-btn-primary" id="search-submit">
-          <SearchIcon size={16} />
-          Search
-        </button>
-      </form>
+      </div>
 
       {isLoading && (
         <div className="ct-loading">

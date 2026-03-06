@@ -1,23 +1,82 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import YouTube from "react-youtube";
-import { AlertTriangle, StopCircle, BarChart3 } from "lucide-react";
+import { AlertTriangle, StopCircle, BarChart3, X, Clock } from "lucide-react";
 import toast from "react-hot-toast";
 
 import { startSession, endSession } from "../../api/sessions";
+import { getDashboard } from "../../api/dashboard";
 import { useEventBatcher } from "./hooks/useEventBatcher";
-import type { EventPayload } from "../../types/api";
+import type { DashboardResponse, DashboardVideo, EventPayload, SessionStatus } from "../../types/api";
 
 type LocationState = { videoTitle?: string };
+
+const STATUS_PRIORITY: Record<SessionStatus, number> = {
+  ACTIVE: 1,
+  COMPLETED: 2,
+  QUIZ_PENDING: 3,
+  CERTIFIED: 4,
+};
+
+function pickLatestByVideo(data?: DashboardResponse) {
+  const all = [
+    ...(data?.activeVideos || []),
+    ...(data?.completedVideos || []),
+    ...(data?.quizPendingVideos || []),
+    ...(data?.certifiedVideos || []),
+  ];
+
+  const map = new Map<string, DashboardVideo>();
+  for (const video of all) {
+    const existing = map.get(video.videoId);
+    if (!existing) {
+      map.set(video.videoId, video);
+      continue;
+    }
+    const nextTs = Date.parse(video.createdAt) || 0;
+    const existingTs = Date.parse(existing.createdAt) || 0;
+    if (nextTs > existingTs) {
+      map.set(video.videoId, video);
+      continue;
+    }
+    if (nextTs === existingTs && STATUS_PRIORITY[video.status] > STATUS_PRIORITY[existing.status]) {
+      map.set(video.videoId, video);
+    }
+  }
+  return [...map.values()].sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0));
+}
+
+function formatDuration(sec: number) {
+  const total = Math.max(0, Math.floor(sec));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) return `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function statusBadge(status: SessionStatus) {
+  const map: Record<SessionStatus, { cls: string; label: string }> = {
+    ACTIVE: { cls: "ct-badge-active", label: "Active" },
+    COMPLETED: { cls: "ct-badge-completed", label: "Completed" },
+    QUIZ_PENDING: { cls: "ct-badge-quiz", label: "Quiz Pending" },
+    CERTIFIED: { cls: "ct-badge-certified", label: "Certified" },
+  };
+  const b = map[status] || { cls: "", label: status };
+  return <span className={`ct-badge ${b.cls}`}>{b.label}</span>;
+}
 
 export function WatchPage() {
   const { videoId } = useParams();
   const nav = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const locState = (location.state || {}) as LocationState;
+  const queryTitle = (searchParams.get("title") || "").trim();
 
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [title, setTitle] = useState(locState.videoTitle || "");
+  const [title, setTitle] = useState(locState.videoTitle || queryTitle || "");
   const [stemEligible, setStemEligible] = useState(true);
   const [stemMessage, setStemMessage] = useState<string | null>(null);
   const [resumed, setResumed] = useState(false);
@@ -40,6 +99,16 @@ export function WatchPage() {
   const suppressSeekUntilMsRef = useRef(0);
   const canLog = Boolean(sessionId && !sessionEnded);
 
+  const { data: dashboardData } = useQuery({
+    queryKey: ["dashboard", "watch-suggestions"],
+    queryFn: () => getDashboard(),
+  });
+
+  const suggestedVideos = useMemo(
+    () => pickLatestByVideo(dashboardData).filter((v) => v.videoId !== videoId).slice(0, 12),
+    [dashboardData, videoId],
+  );
+
   const toLocalIsoWithoutTz = (d: Date) => {
     const pad = (n: number) => n.toString().padStart(2, "0");
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
@@ -58,10 +127,8 @@ export function WatchPage() {
     sessionEndedRef.current = sessionEnded;
   }, [sessionEnded]);
 
-  useEffect(() => {
-    return () => {
-      mountedRef.current = false;
-    };
+  useEffect(() => () => {
+    mountedRef.current = false;
   }, []);
 
   useEffect(() => {
@@ -70,7 +137,6 @@ export function WatchPage() {
     suppressSeekUntilMsRef.current = 0;
   }, [sessionId]);
 
-  // Helper: create event payload
   const makeEvent = useCallback((type: string, extras?: Partial<EventPayload>): EventPayload => ({
     sessionId: sessionId!,
     eventType: type,
@@ -86,35 +152,37 @@ export function WatchPage() {
     ...extras,
   }), [sessionId, playerState, currentTime, duration]);
 
-  // --- Start session ---
   useEffect(() => {
     if (!videoId) return;
     let cancelled = false;
+    const preferredTitle = locState.videoTitle || queryTitle || `Video ${videoId}`;
 
     (async () => {
       try {
         const res = await startSession({
           videoId,
-          videoTitle: locState.videoTitle || videoId,
+          videoTitle: preferredTitle,
         });
         if (cancelled) return;
 
         setSessionId(res.sessionId);
-        setTitle(locState.videoTitle || videoId);
+        setTitle(preferredTitle);
         setStemEligible(res.stemEligible);
         setStemMessage(res.stemMessage);
         setResumed(res.resumed);
         setLastPos(res.lastPositionSec);
+        setSessionEnded(false);
       } catch (e: any) {
         toast.error(e?.message || "Failed to start session");
       }
     })();
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [videoId]);
+  }, [videoId, queryTitle]);
 
-  // --- Time tick (every 3s for update) ---
   useEffect(() => {
     if (!canLog || !playerRef.current) return;
 
@@ -124,14 +192,14 @@ export function WatchPage() {
       try {
         setCurrentTime(p.getCurrentTime());
         setDuration(p.getDuration());
-      } catch { /* noop */ }
+      } catch {
+        // noop
+      }
     }, 3000);
 
     return () => window.clearInterval(t);
   }, [canLog]);
 
-  // If user starts playback before session is created, we can miss the initial
-  // "play" state-change event. Once session becomes loggable, capture current state.
   useEffect(() => {
     if (!canLog || !playerRef.current) return;
     try {
@@ -149,58 +217,54 @@ export function WatchPage() {
     }
   }, [canLog, enqueue, makeEvent, startTimer]);
 
-  const flushAndEndSession = useCallback(
-    async (opts?: { silent?: boolean }) => {
-      const sid = sessionIdRef.current;
-      if (!sid || sessionEndedRef.current || endingSessionRef.current) return;
+  const flushAndEndSession = useCallback(async (): Promise<string | null> => {
+    const sid = sessionIdRef.current;
+    if (!sid || sessionEndedRef.current || endingSessionRef.current) return null;
 
-      endingSessionRef.current = true;
-      if (mountedRef.current && !opts?.silent) {
-        setEndingSession(true);
+    endingSessionRef.current = true;
+    if (mountedRef.current) {
+      setEndingSession(true);
+    }
+    stopTimer();
+
+    try {
+      for (let i = 0; i < 3; i += 1) {
+        await flush();
+        if (getPendingCount() === 0) break;
+        await new Promise((resolve) => window.setTimeout(resolve, 120));
       }
-      stopTimer();
 
-      try {
-        // Contract order: flush final events -> end session.
-        const flushOkFirst = await flush();
-        const flushOkSecond = getPendingCount() > 0 ? await flush() : true;
-        const pending = getPendingCount();
-
-        if (pending > 0) {
-          if (mountedRef.current && !opts?.silent) {
-            if (!flushOkFirst || !flushOkSecond) {
-              toast.error("Could not sync watch events. Check connection and try End Session again.");
-            } else {
-              toast.error("Pending watch events remain. Please click End Session again.");
-            }
-          }
-          return;
+      if (getPendingCount() > 0) {
+        if (mountedRef.current) {
+          toast.error("Could not sync watch events. Check network and try again.");
         }
-
-        await endSession(sid);
-        sessionEndedRef.current = true;
-        if (mountedRef.current && !opts?.silent) {
-          setSessionEnded(true);
-          toast.success("Session ended");
-        }
-      } catch (e: any) {
-        if (mountedRef.current && !opts?.silent) {
-          toast.error(e?.message || "Failed to end session");
-        }
-      } finally {
-        endingSessionRef.current = false;
-        if (mountedRef.current && !opts?.silent) {
-          setEndingSession(false);
-        }
+        return null;
       }
-    },
-    [flush, getPendingCount, stopTimer]
-  );
 
-  // --- Cleanup on tab close / route leave ---
+      await endSession(sid);
+      sessionEndedRef.current = true;
+      if (mountedRef.current) {
+        setSessionEnded(true);
+        toast.success("Session ended");
+      }
+      return sid;
+    } catch (e: any) {
+      if (mountedRef.current) {
+        toast.error(e?.message || "Failed to end session");
+      }
+      return null;
+    } finally {
+      endingSessionRef.current = false;
+      if (mountedRef.current) {
+        setEndingSession(false);
+      }
+    }
+  }, [flush, getPendingCount, stopTimer]);
+
   useEffect(() => {
     const handlePageHide = () => {
-      void flushAndEndSession({ silent: true });
+      stopTimer();
+      void flush();
     };
 
     window.addEventListener("pagehide", handlePageHide);
@@ -209,20 +273,21 @@ export function WatchPage() {
     return () => {
       window.removeEventListener("pagehide", handlePageHide);
       window.removeEventListener("beforeunload", handlePageHide);
-      void flushAndEndSession({ silent: true });
+      stopTimer();
+      void flush();
     };
-  }, [flushAndEndSession]);
+  }, [flush, stopTimer]);
 
-  // --- Player callbacks ---
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const onReady = (e: any) => {
     playerRef.current = e.target;
     try {
       setDuration(e.target.getDuration());
       lastObservedTimeRef.current = e.target.getCurrentTime();
-    } catch { /* noop */ }
+    } catch {
+      // noop
+    }
 
-    // If resumed, seek to last position
     if (resumed && lastPos != null && lastPos > 0) {
       e.target.seekTo(lastPos, true);
       suppressSeekUntilMsRef.current = Date.now() + 1500;
@@ -241,23 +306,30 @@ export function WatchPage() {
       try {
         setCurrentTime(p.getCurrentTime());
         setDuration(p.getDuration());
-      } catch { /* noop */ }
+      } catch {
+        // noop
+      }
     }
 
     let eventType = "play";
-    if (state === 1) { eventType = "play"; startTimer(); }
-    else if (state === 2) { eventType = "pause"; }
-    else if (state === 3) { eventType = "buffering"; }
-    else if (state === 0) { eventType = "ended"; }
-    else return;
+    if (state === 1) {
+      eventType = "play";
+      if (canLog) startTimer();
+    } else if (state === 2) {
+      eventType = "pause";
+      stopTimer();
+    } else if (state === 3) {
+      eventType = "buffering";
+    } else if (state === 0) {
+      eventType = "ended";
+      stopTimer();
+      toast("Video finished. Click End Session to continue.");
+    } else {
+      return;
+    }
 
     if (canLog) {
       enqueue(makeEvent(eventType));
-    }
-
-    // Auto-end when video finishes
-    if (state === 0) {
-      void flushAndEndSession();
     }
   };
 
@@ -268,7 +340,6 @@ export function WatchPage() {
     enqueue(makeEvent("ratechange", { playbackRate: Number.isFinite(rate) ? rate : 1 }));
   };
 
-  // Detect seek jumps and batch them as `seek` events
   useEffect(() => {
     if (!canLog || !playerRef.current) return;
 
@@ -317,16 +388,26 @@ export function WatchPage() {
 
   const handleEndSession = async () => {
     if (!sessionId || sessionEnded) return;
+
     if (canLog) {
       try {
         const state = Number(playerRef.current?.getPlayerState?.() ?? -1);
-        const type = state === 1 ? "play" : state === 3 ? "buffering" : "pause";
-        enqueue(makeEvent(type));
+        const checkpointType = state === 1 ? "play" : state === 3 ? "buffering" : "pause";
+        enqueue(makeEvent(checkpointType));
       } catch {
         // noop
       }
     }
-    await flushAndEndSession();
+
+    const endedSid = await flushAndEndSession();
+    if (endedSid) {
+      nav(`/analyze/${endedSid}`, {
+        state: {
+          videoId,
+          videoTitle: title,
+        },
+      });
+    }
   };
 
   const goAnalyze = () => {
@@ -336,88 +417,127 @@ export function WatchPage() {
 
   if (!videoId) return <div className="ct-empty">Missing video ID</div>;
 
-  const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
-
   return (
-    <div className="ct-slide-up">
-      <h1 className="ct-page-title" style={{ fontSize: 22, marginBottom: 16 }}>
-        {title || videoId}
-      </h1>
-
-      {/* STEM warning banner */}
-      {!stemEligible && stemMessage && (
-        <div className="ct-banner ct-banner-warning" style={{ marginBottom: 16 }}>
-          <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: 2 }} />
-          <span>{stemMessage}</span>
-        </div>
-      )}
-
-      {/* Video Player */}
-      <div style={{ borderRadius: "var(--ct-radius-lg)", overflow: "hidden", border: "1px solid var(--ct-border)", marginBottom: 20 }}>
-        <YouTube
-          videoId={videoId}
-          onReady={onReady}
-          onStateChange={onStateChange}
-          onPlaybackRateChange={onPlaybackRateChange}
-          opts={{
-            width: "100%",
-            height: "500",
-            playerVars: { autoplay: 0, rel: 0, modestbranding: 1 },
-          }}
-          style={{ width: "100%", display: "block" }}
-        />
-      </div>
-
-      {/* Progress bar */}
-      <div className="ct-progress" style={{ marginBottom: 16 }}>
-        <div className="ct-progress-bar" style={{ width: `${Math.min(progress, 100)}%` }} />
-      </div>
-
-      {/* Status info */}
-      <div className="ct-card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, padding: 16, marginBottom: 16 }}>
-        <div style={{ display: "flex", gap: 16, fontSize: 13, color: "var(--ct-text-secondary)" }}>
-          <span>Session: <span style={{ color: "var(--ct-text)", fontFamily: "monospace" }}>{sessionId?.slice(0, 8) || "…"}</span></span>
-          <span>Time: {Math.floor(currentTime)}s / {Math.floor(duration)}s</span>
-          <span>Progress: {progress.toFixed(1)}%</span>
-          {stemEligible ? (
-            <span className="ct-badge ct-badge-stem">STEM</span>
-          ) : (
-            <span className="ct-badge ct-badge-not-stem">Non-STEM</span>
-          )}
+    <div className="ct-slide-up ct-watch-layout">
+      <section className="ct-watch-main">
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 14 }}>
+          <h1 className="ct-page-title" style={{ fontSize: 22, marginBottom: 0 }}>
+            {title || "Watching Video"}
+          </h1>
+          <button className="ct-btn ct-btn-ghost ct-btn-sm" onClick={() => nav("/my-learnings")}>
+            <X size={14} />
+            Close Player
+          </button>
         </div>
 
-        <div style={{ display: "flex", gap: 8 }}>
-          {!sessionEnded ? (
-            <button
-              className="ct-btn ct-btn-secondary ct-btn-sm"
-              onClick={handleEndSession}
-              disabled={!sessionId || endingSession}
-              id="end-session-btn"
-            >
-              <StopCircle size={14} />
-              {endingSession ? "Ending…" : "End Session"}
-            </button>
-          ) : (
-            stemEligible && (
+        {!stemEligible && stemMessage && (
+          <div className="ct-banner ct-banner-warning" style={{ marginBottom: 16 }}>
+            <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: 2 }} />
+            <span>{stemMessage}</span>
+          </div>
+        )}
+
+        <div style={{ borderRadius: "var(--ct-radius-lg)", overflow: "hidden", border: "1px solid var(--ct-border)", marginBottom: 18 }}>
+          <YouTube
+            videoId={videoId}
+            onReady={onReady}
+            onStateChange={onStateChange}
+            onPlaybackRateChange={onPlaybackRateChange}
+            opts={{
+              width: "100%",
+              height: "500",
+              playerVars: { autoplay: 0, rel: 0, modestbranding: 1 },
+            }}
+            style={{ width: "100%", display: "block" }}
+          />
+        </div>
+
+        <div className="ct-card">
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <span className={`ct-badge ${stemEligible ? "ct-badge-stem" : "ct-badge-not-stem"}`}>
+              {stemEligible ? "STEM Eligible" : "Non-STEM"}
+            </span>
+            <span className={`ct-badge ${sessionEnded ? "ct-badge-completed" : "ct-badge-active"}`}>
+              {sessionEnded ? "Session Completed" : "Session Active"}
+            </span>
+          </div>
+
+          <p style={{ fontSize: 13, color: "var(--ct-text-secondary)", marginBottom: 12 }}>
+            Events are sent in background batches while you watch. Click End Session only when you are fully done.
+          </p>
+
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {!sessionEnded ? (
               <button
                 className="ct-btn ct-btn-primary ct-btn-sm"
-                onClick={goAnalyze}
-                id="analyze-btn"
+                onClick={handleEndSession}
+                disabled={!sessionId || endingSession}
+                id="end-session-btn"
               >
-                <BarChart3 size={14} />
-                Analyze Engagement
+                <StopCircle size={14} />
+                {endingSession ? "Ending..." : "End Session"}
               </button>
-            )
-          )}
+            ) : (
+              stemEligible && (
+                <button
+                  className="ct-btn ct-btn-secondary ct-btn-sm"
+                  onClick={goAnalyze}
+                  id="analyze-btn"
+                >
+                  <BarChart3 size={14} />
+                  Analyze Engagement
+                </button>
+              )
+            )}
+          </div>
         </div>
-      </div>
 
-      {sessionEnded && !stemEligible && (
-        <div className="ct-banner ct-banner-warning">
-          <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: 2 }} />
-          <span>Session ended. This video is not STEM-eligible, so engagement analysis is unavailable.</span>
-        </div>
-      )}
+        {sessionEnded && !stemEligible && (
+          <div className="ct-banner ct-banner-warning" style={{ marginTop: 16 }}>
+            <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: 2 }} />
+            <span>Session ended. This video is not STEM-eligible, so engagement analysis is unavailable.</span>
+          </div>
+        )}
+      </section>
+
+      <aside className="ct-watch-side">
+        <h2 className="ct-section-title" style={{ fontSize: 18, marginBottom: 12 }}>
+          Suggested From My Learnings
+        </h2>
+
+        {suggestedVideos.length === 0 ? (
+          <div className="ct-card" style={{ padding: 16, color: "var(--ct-text-muted)" }}>
+            No suggested videos yet.
+          </div>
+        ) : (
+          <div style={{ display: "grid", gap: 10 }}>
+            {suggestedVideos.map((v) => (
+              <button
+                key={v.sessionId}
+                type="button"
+                className="ct-watch-suggest-item"
+                onClick={() => nav(`/watch/${v.videoId}`, { state: { videoTitle: v.videoTitle } })}
+              >
+                <img
+                  src={v.thumbnailUrl || `https://img.youtube.com/vi/${v.videoId}/mqdefault.jpg`}
+                  alt={v.videoTitle}
+                  className="ct-watch-suggest-thumb"
+                />
+                <div style={{ minWidth: 0, textAlign: "left" }}>
+                  <div className="ct-watch-suggest-title">{v.videoTitle}</div>
+                  <div style={{ marginTop: 5, display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "var(--ct-text-muted)" }}>
+                    {statusBadge(v.status)}
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                      <Clock size={11} />
+                      {v.videoDurationSec ? formatDuration(v.videoDurationSec) : "-"}
+                    </span>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </aside>
     </div>
   );
 }
