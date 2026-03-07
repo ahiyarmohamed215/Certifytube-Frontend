@@ -25,16 +25,19 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         position="top-right"
         toastOptions={{
           style: {
-            background: "#ffffff",
-            color: "#112640",
-            border: "1px solid rgba(255, 0, 51, 0.22)",
-            borderRadius: "12px",
-            fontSize: "14px",
-            boxShadow: "0 8px 22px rgba(17, 38, 64, 0.12)",
+            background: "rgba(255, 255, 255, 0.82)",
+            backdropFilter: "blur(16px) saturate(180%)",
+            WebkitBackdropFilter: "blur(16px) saturate(180%)",
+            color: "#1a1a2e",
+            border: "1px solid rgba(0, 0, 0, 0.06)",
+            borderRadius: "14px",
+            fontSize: "13.5px",
+            fontFamily: "'Plus Jakarta Sans', 'Inter', sans-serif",
+            boxShadow: "0 8px 24px rgba(0, 0, 0, 0.06)",
+            padding: "10px 16px",
           },
         }}
       />
     </QueryClientProvider>
   </React.StrictMode>
 );
-

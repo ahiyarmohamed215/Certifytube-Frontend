@@ -1,39 +1,70 @@
-import { type ReactNode, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { type ReactNode, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { Play, BarChart3, ClipboardCheck, Award, BookOpen, Clock, RotateCcw, Sparkles } from "lucide-react";
+import { Play, BarChart3, ClipboardCheck, Award, BookOpen, Clock, RotateCcw, Sparkles, Trash2, AlertTriangle } from "lucide-react";
+import toast from "react-hot-toast";
 
 import { getDashboard } from "../../api/dashboard";
+import { deleteSessionRecord } from "../../api/sessions";
 import type { DashboardVideo, SessionStatus } from "../../types/api";
 
 const ENGAGEMENT_THRESHOLD = 0.85;
 
 type VideoInsight = {
-  attempts: number;
+  sessions: number;
+  rewatchAttempts: number;
   bestScore: number | null;
+  lastScore: number | null;
   engagedAttempts: number;
 };
+
+type StemFilter = "all" | "stem" | "nonstem";
 
 function sortByCreatedDesc(videos: DashboardVideo[]) {
   return [...videos].sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0));
 }
 
+function latestSessionByVideo(videos: DashboardVideo[]) {
+  const sorted = sortByCreatedDesc(videos);
+  const seen = new Set<string>();
+  const out: DashboardVideo[] = [];
+  for (const v of sorted) {
+    if (seen.has(v.videoId)) continue;
+    seen.add(v.videoId);
+    out.push(v);
+  }
+  return out;
+}
+
 function buildVideoInsight(videos: DashboardVideo[]) {
+  const sorted = sortByCreatedDesc(videos);
   const map = new Map<string, VideoInsight>();
-  for (const v of videos) {
-    const prev = map.get(v.videoId) || { attempts: 0, bestScore: null, engagedAttempts: 0 };
+  for (const v of sorted) {
+    const prev = map.get(v.videoId) || {
+      sessions: 0,
+      rewatchAttempts: 0,
+      bestScore: null,
+      lastScore: null,
+      engagedAttempts: 0,
+    };
     const score = v.engagementScore;
     const bestScore = score == null
       ? prev.bestScore
       : prev.bestScore == null
         ? score
         : Math.max(prev.bestScore, score);
+    const lastScore = prev.lastScore == null && score != null ? score : prev.lastScore;
+    // Rewatch attempts are counted by how many additional sessions were created
+    // for the same video after the first watch session.
+    const rewatchAttempts = prev.sessions;
     const engagedAttempts = score != null && score >= ENGAGEMENT_THRESHOLD
       ? prev.engagedAttempts + 1
       : prev.engagedAttempts;
     map.set(v.videoId, {
-      attempts: prev.attempts + 1,
+      sessions: prev.sessions + 1,
+      rewatchAttempts,
       bestScore,
+      lastScore,
       engagedAttempts,
     });
   }
@@ -53,6 +84,14 @@ function statusBadge(status: SessionStatus) {
 
 function actionFor(v: DashboardVideo) {
   if (!v.stemEligible) {
+    if (v.status === "ACTIVE") {
+      return {
+        icon: <Play size={14} />,
+        text: "Continue",
+        path: `/watch/${v.videoId}`,
+        note: "Non-STEM video. Watch-only mode. No analysis, quiz, or certificate.",
+      };
+    }
     return {
       icon: <RotateCcw size={14} />,
       text: "Watch Again",
@@ -87,10 +126,10 @@ function actionFor(v: DashboardVideo) {
         };
       }
       return {
-        icon: <BarChart3 size={14} />,
-        text: "Recheck Status",
-        path: `/analyze/${v.sessionId}`,
-        note: "Engagement passed. This session should appear under Quiz Pending.",
+        icon: <ClipboardCheck size={14} />,
+        text: "Take Quiz",
+        path: `/quiz/${v.sessionId}`,
+        note: "Engagement passed. You can take the quiz now.",
       };
     case "QUIZ_PENDING":
       return {
@@ -118,10 +157,16 @@ function formatDuration(sec: number) {
 function VideoRow({
   v,
   onClick,
+  onDelete,
+  onOpenAttempts,
+  deleting,
   insight,
 }: {
   v: DashboardVideo;
   onClick: () => void;
+  onDelete: () => void;
+  onOpenAttempts: () => void;
+  deleting: boolean;
   insight?: VideoInsight;
 }) {
   const action = actionFor(v);
@@ -155,9 +200,31 @@ function VideoRow({
         </div>
 
         <div className="ct-learning-row-meta" style={{ marginTop: 6 }}>
-          <span>Session: {v.sessionId.slice(0, 8)}</span>
-          {insight && <span>Attempts: {insight.attempts}</span>}
+          {insight && <span>Sessions: {insight.sessions}</span>}
+          {insight && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenAttempts();
+              }}
+              style={{
+                border: "none",
+                background: "none",
+                color: "var(--ct-accent-light)",
+                cursor: "pointer",
+                fontWeight: 700,
+                padding: 0,
+              }}
+              title="View attempts for this video"
+            >
+              Rewatch Attempts: {insight.rewatchAttempts}
+            </button>
+          )}
           {insight?.bestScore != null && <span>Best: {(insight.bestScore * 100).toFixed(0)}%</span>}
+          {v.engagementScore == null && insight?.lastScore != null && (
+            <span>Last: {(insight.lastScore * 100).toFixed(0)}%</span>
+          )}
           {insight && insight.engagedAttempts > 0 && <span>Engaged: {insight.engagedAttempts}</span>}
         </div>
 
@@ -165,6 +232,19 @@ function VideoRow({
       </div>
 
       <div className="ct-learning-row-action">
+        <button
+          className="ct-btn ct-btn-danger ct-btn-sm"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          disabled={deleting}
+          title="Delete this session"
+          style={{ marginRight: 8 }}
+        >
+          <Trash2 size={14} />
+          {deleting ? "Deleting..." : "Delete"}
+        </button>
         <span className="ct-btn ct-btn-primary ct-btn-sm">
           {action.icon}
           {action.text}
@@ -180,6 +260,9 @@ function Section({
   videos,
   emptyText,
   onOpen,
+  onDelete,
+  onOpenAttempts,
+  deletingSessionId,
   insightByVideoId,
 }: {
   title: string;
@@ -187,10 +270,13 @@ function Section({
   videos: DashboardVideo[];
   emptyText: string;
   onOpen: (v: DashboardVideo) => void;
+  onDelete: (sessionId: string) => void;
+  onOpenAttempts: (videoId: string) => void;
+  deletingSessionId: string | null;
   insightByVideoId: Map<string, VideoInsight>;
 }) {
   return (
-    <div style={{ marginBottom: 28 }}>
+    <section style={{ marginBottom: 28 }}>
       <h2 className="ct-section-title">
         {icon}
         {title}
@@ -206,20 +292,41 @@ function Section({
             key={v.sessionId}
             v={v}
             onClick={() => onOpen(v)}
+            onDelete={() => onDelete(v.sessionId)}
+            onOpenAttempts={() => onOpenAttempts(v.videoId)}
+            deleting={deletingSessionId === v.sessionId}
             insight={insightByVideoId.get(v.videoId)}
           />
         ))
       )}
-    </div>
+    </section>
   );
 }
 
 export function MyLearningsPage() {
   const nav = useNavigate();
+  const qc = useQueryClient();
+  const [attemptsVideoId, setAttemptsVideoId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DashboardVideo | null>(null);
+  const [selectedStatus, setSelectedStatus] = useState<"active" | "completed" | "quiz">("active");
+  const [activeStemFilter, setActiveStemFilter] = useState<StemFilter>("all");
+  const [completedStemFilter, setCompletedStemFilter] = useState<StemFilter>("all");
 
   const { data, isLoading } = useQuery({
     queryKey: ["dashboard", "all-statuses"],
     queryFn: () => getDashboard(),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (sessionId: string) => deleteSessionRecord(sessionId),
+    onSuccess: () => {
+      toast.success("Session deleted");
+      setDeleteTarget(null);
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+    onError: (e: any) => {
+      toast.error(e?.message || "Delete failed");
+    },
   });
 
   const activeAll = useMemo(() => sortByCreatedDesc(data?.activeVideos || []), [data]);
@@ -231,14 +338,138 @@ export function MyLearningsPage() {
     [activeAll, completedAll, quizPendingAll, certifiedAll],
   );
   const insightByVideoId = useMemo(() => buildVideoInsight(allSessions), [allSessions]);
-
-  const activeVideos = useMemo(() => activeAll.filter((v) => v.stemEligible), [activeAll]);
-  const completedVideos = useMemo(() => completedAll.filter((v) => v.stemEligible), [completedAll]);
-  const quizPendingVideos = useMemo(() => quizPendingAll.filter((v) => v.stemEligible), [quizPendingAll]);
-  const nonStemVideos = useMemo(
-    () => sortByCreatedDesc(allSessions.filter((v) => !v.stemEligible)),
-    [allSessions],
+  const attemptsSessions = useMemo(
+    () => attemptsVideoId ? sortByCreatedDesc(allSessions.filter((s) => s.videoId === attemptsVideoId)) : [],
+    [allSessions, attemptsVideoId],
   );
+  const attemptsTitle = attemptsSessions[0]?.videoTitle || "";
+  const activeLatest = useMemo(() => latestSessionByVideo(activeAll), [activeAll]);
+  const quizPendingLatest = useMemo(() => latestSessionByVideo(quizPendingAll), [quizPendingAll]);
+  const completedLatest = useMemo(() => latestSessionByVideo(completedAll), [completedAll]);
+  const certifiedLatest = useMemo(() => latestSessionByVideo(certifiedAll), [certifiedAll]);
+
+  const activeVideoIdSet = useMemo(() => new Set(activeLatest.map((v) => v.videoId)), [activeLatest]);
+  const certifiedIssuedVideoIdSet = useMemo(
+    () => new Set(certifiedLatest.filter((v) => Boolean(v.certificateId)).map((v) => v.videoId)),
+    [certifiedLatest],
+  );
+
+  const absoluteLatest = useMemo(() => latestSessionByVideo(allSessions), [allSessions]);
+  const absoluteLatestActiveVideoIdSet = useMemo(
+    () => new Set(absoluteLatest.filter((v) => v.status === "ACTIVE").map((v) => v.videoId)),
+    [absoluteLatest]
+  );
+
+  // Journey visibility rules:
+  // 1) Any engaged session (>= threshold) should appear in QUIZ_PENDING until certificate exists.
+  // 2) If a video has CERTIFIED with certificateId, hide it from QUIZ_PENDING/COMPLETED.
+  // 3) COMPLETED is hidden when video is already in QUIZ_PENDING.
+  // 4) If the absolute latest session is ACTIVE (user clicked Watch Again), hide it from QUIZ_PENDING so it shows as Active.
+  const directQuizPendingVideos = useMemo(
+    () => quizPendingLatest.filter((v) => v.stemEligible && !certifiedIssuedVideoIdSet.has(v.videoId) && !absoluteLatestActiveVideoIdSet.has(v.videoId)),
+    [quizPendingLatest, certifiedIssuedVideoIdSet, absoluteLatestActiveVideoIdSet],
+  );
+  const directQuizPendingVideoIdSet = useMemo(
+    () => new Set(directQuizPendingVideos.map((v) => v.videoId)),
+    [directQuizPendingVideos],
+  );
+  const promotedFromCompletedToQuizPending = useMemo(
+    () => completedLatest
+      .filter(
+        (v) =>
+          v.stemEligible
+          && v.engagementScore != null
+          && v.engagementScore >= ENGAGEMENT_THRESHOLD
+          && !certifiedIssuedVideoIdSet.has(v.videoId)
+          && !directQuizPendingVideoIdSet.has(v.videoId)
+          && !absoluteLatestActiveVideoIdSet.has(v.videoId),
+      )
+      .map((v) => ({ ...v, status: "QUIZ_PENDING" as const })),
+    [completedLatest, certifiedIssuedVideoIdSet, directQuizPendingVideoIdSet, absoluteLatestActiveVideoIdSet],
+  );
+  const promotedFromCertifiedNoCertificate = useMemo(
+    () => certifiedLatest
+      .filter(
+        (v) =>
+          v.stemEligible
+          && !v.certificateId
+          && !directQuizPendingVideoIdSet.has(v.videoId)
+          && !absoluteLatestActiveVideoIdSet.has(v.videoId),
+      )
+      .map((v) => ({ ...v, status: "QUIZ_PENDING" as const })),
+    [certifiedLatest, directQuizPendingVideoIdSet, absoluteLatestActiveVideoIdSet],
+  );
+  const quizPendingVideos = useMemo(
+    () => latestSessionByVideo(sortByCreatedDesc([
+      ...directQuizPendingVideos,
+      ...promotedFromCompletedToQuizPending,
+      ...promotedFromCertifiedNoCertificate,
+    ])),
+    [directQuizPendingVideos, promotedFromCompletedToQuizPending, promotedFromCertifiedNoCertificate],
+  );
+  const quizPendingVideoIdSet = useMemo(
+    () => new Set(quizPendingVideos.map((v) => v.videoId)),
+    [quizPendingVideos],
+  );
+  const activeVideos = useMemo(
+    () =>
+      activeLatest.filter(
+        (v) =>
+          v.stemEligible
+          && !quizPendingVideoIdSet.has(v.videoId)
+          && !certifiedIssuedVideoIdSet.has(v.videoId),
+      ),
+    [activeLatest, quizPendingVideoIdSet, certifiedIssuedVideoIdSet],
+  );
+  const activeNonStemVideos = useMemo(
+    () =>
+      activeLatest.filter(
+        (v) =>
+          !v.stemEligible
+          && !quizPendingVideoIdSet.has(v.videoId)
+          && !certifiedIssuedVideoIdSet.has(v.videoId),
+      ),
+    [activeLatest, quizPendingVideoIdSet, certifiedIssuedVideoIdSet],
+  );
+  const completedVideos = useMemo(
+    () => completedLatest.filter((v) => v.stemEligible && !activeVideoIdSet.has(v.videoId) && !quizPendingVideoIdSet.has(v.videoId) && !certifiedIssuedVideoIdSet.has(v.videoId)),
+    [completedLatest, activeVideoIdSet, quizPendingVideoIdSet, certifiedIssuedVideoIdSet],
+  );
+  const completedNonStemVideos = useMemo(
+    () => completedLatest.filter((v) => !v.stemEligible && !activeVideoIdSet.has(v.videoId) && !certifiedIssuedVideoIdSet.has(v.videoId)),
+    [completedLatest, activeVideoIdSet, certifiedIssuedVideoIdSet],
+  );
+  const activeFilteredVideos = useMemo(() => {
+    if (activeStemFilter === "stem") return activeVideos;
+    if (activeStemFilter === "nonstem") return activeNonStemVideos;
+    return sortByCreatedDesc([...activeVideos, ...activeNonStemVideos]);
+  }, [activeStemFilter, activeVideos, activeNonStemVideos]);
+  const completedFilteredVideos = useMemo(() => {
+    if (completedStemFilter === "stem") return completedVideos;
+    if (completedStemFilter === "nonstem") return completedNonStemVideos;
+    return sortByCreatedDesc([...completedVideos, ...completedNonStemVideos]);
+  }, [completedStemFilter, completedVideos, completedNonStemVideos]);
+
+  const sideNavItems = [
+    {
+      key: "active" as const,
+      label: "Active",
+      count: activeVideos.length + activeNonStemVideos.length,
+      navIcon: <Play size={14} />,
+    },
+    {
+      key: "completed" as const,
+      label: "Completed",
+      count: completedVideos.length + completedNonStemVideos.length,
+      navIcon: <BookOpen size={14} />,
+    },
+    {
+      key: "quiz" as const,
+      label: "Quiz Pending",
+      count: quizPendingVideos.length,
+      navIcon: <Sparkles size={14} />,
+    },
+  ];
 
   const openVideo = (v: DashboardVideo) => {
     const action = actionFor(v);
@@ -251,63 +482,281 @@ export function MyLearningsPage() {
       return;
     }
     if (action.path.startsWith("/quiz/")) {
-      nav(action.path, { state: { sessionId: v.sessionId } });
+      nav(action.path, {
+        state: {
+          sessionId: v.sessionId,
+          videoId: v.videoId,
+          videoTitle: v.videoTitle,
+        },
+      });
       return;
     }
     nav(action.path);
   };
 
+  const requestDeleteSession = (sessionId: string) => {
+    const target = allSessions.find((s) => s.sessionId === sessionId);
+    if (!target) {
+      toast.error("Session not found");
+      return;
+    }
+    setDeleteTarget(target);
+  };
+
+  const confirmDeleteSession = () => {
+    if (!deleteTarget) return;
+    deleteMutation.mutate(deleteTarget.sessionId);
+  };
+
   return (
     <div className="ct-slide-up">
       <h1 className="ct-page-title">My Learnings</h1>
-      <p className="ct-page-subtitle">Session history by status with scores, attempts, and session IDs.</p>
-
-      <div className="ct-stat-grid" style={{ marginBottom: 24 }}>
-        <div className="ct-stat-card"><div className="ct-stat-value">{activeVideos.length}</div><div className="ct-stat-label">Active</div></div>
-        <div className="ct-stat-card"><div className="ct-stat-value">{completedVideos.length}</div><div className="ct-stat-label">Completed</div></div>
-        <div className="ct-stat-card"><div className="ct-stat-value">{quizPendingVideos.length}</div><div className="ct-stat-label">Quiz Pending</div></div>
-      </div>
+      <p className="ct-page-subtitle">Track learning progress, scores, and rewatch attempts by status.</p>
 
       {isLoading ? (
         <div className="ct-loading"><div className="ct-spinner" /><span>Loading statuses...</span></div>
       ) : (
-        <>
-          <Section
-            title="Active Sessions"
-            icon={<Play size={20} style={{ color: "var(--ct-info)" }} />}
-            videos={activeVideos}
-            emptyText="No active sessions right now."
-            onOpen={openVideo}
-            insightByVideoId={insightByVideoId}
-          />
+        <div className="ct-learning-layout">
+          <aside className="ct-learning-side">
+            <div className="ct-learning-side-nav">
+              <p className="ct-learning-side-title">Status</p>
+              {sideNavItems.map((item) => (
+                <button
+                  type="button"
+                  key={item.key}
+                  className={`ct-learning-side-btn ${selectedStatus === item.key ? "active" : ""}`}
+                  onClick={() => setSelectedStatus(item.key)}
+                >
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                    {item.navIcon}
+                    {item.label}
+                  </span>
+                  <span className="ct-learning-side-pill">{item.count}</span>
+                </button>
+              ))}
+            </div>
+          </aside>
 
-          <Section
-            title="Completed"
-            icon={<BookOpen size={20} style={{ color: "var(--ct-accent-light)" }} />}
-            videos={completedVideos}
-            emptyText="No completed sessions yet."
-            onOpen={openVideo}
-            insightByVideoId={insightByVideoId}
-          />
+          <div className="ct-learning-content">
+            <div key={selectedStatus} className="ct-learning-panel-anim">
+              {selectedStatus === "active" && (
+                <>
+                  <div className="ct-learning-filter-row">
+                    <button
+                      type="button"
+                      className={`ct-learning-filter-btn ${activeStemFilter === "all" ? "active" : ""}`}
+                      onClick={() => setActiveStemFilter("all")}
+                    >
+                      All
+                    </button>
+                    <button
+                      type="button"
+                      className={`ct-learning-filter-btn ${activeStemFilter === "stem" ? "active" : ""}`}
+                      onClick={() => setActiveStemFilter("stem")}
+                    >
+                      STEM
+                    </button>
+                    <button
+                      type="button"
+                      className={`ct-learning-filter-btn ${activeStemFilter === "nonstem" ? "active" : ""}`}
+                      onClick={() => setActiveStemFilter("nonstem")}
+                    >
+                      Non-STEM
+                    </button>
+                  </div>
+                  <Section
+                    title={
+                      activeStemFilter === "all"
+                        ? "Active Sessions"
+                        : activeStemFilter === "stem"
+                          ? "Active - STEM"
+                          : "Active - Non-STEM"
+                    }
+                    icon={<Play size={20} style={{ color: "var(--ct-info)" }} />}
+                    videos={activeFilteredVideos}
+                    emptyText={
+                      activeStemFilter === "all"
+                        ? "No active sessions right now."
+                        : activeStemFilter === "stem"
+                          ? "No active STEM sessions right now."
+                          : "No active non-STEM sessions right now."
+                    }
+                    onOpen={openVideo}
+                    onDelete={requestDeleteSession}
+                    onOpenAttempts={setAttemptsVideoId}
+                    deletingSessionId={deleteMutation.isPending ? (deleteMutation.variables ?? null) : null}
+                    insightByVideoId={insightByVideoId}
+                  />
+                </>
+              )}
 
-          <Section
-            title="Quiz Pending"
-            icon={<Sparkles size={20} style={{ color: "var(--ct-warning)" }} />}
-            videos={quizPendingVideos}
-            emptyText="No quiz-pending videos yet."
-            onOpen={openVideo}
-            insightByVideoId={insightByVideoId}
-          />
+              {selectedStatus === "completed" && (
+                <>
+                  <div className="ct-learning-filter-row">
+                    <button
+                      type="button"
+                      className={`ct-learning-filter-btn ${completedStemFilter === "all" ? "active" : ""}`}
+                      onClick={() => setCompletedStemFilter("all")}
+                    >
+                      All
+                    </button>
+                    <button
+                      type="button"
+                      className={`ct-learning-filter-btn ${completedStemFilter === "stem" ? "active" : ""}`}
+                      onClick={() => setCompletedStemFilter("stem")}
+                    >
+                      STEM
+                    </button>
+                    <button
+                      type="button"
+                      className={`ct-learning-filter-btn ${completedStemFilter === "nonstem" ? "active" : ""}`}
+                      onClick={() => setCompletedStemFilter("nonstem")}
+                    >
+                      Non-STEM
+                    </button>
+                  </div>
+                  <Section
+                    title={
+                      completedStemFilter === "all"
+                        ? "Completed Sessions"
+                        : completedStemFilter === "stem"
+                          ? "Completed - STEM"
+                          : "Completed - Non-STEM"
+                    }
+                    icon={<BookOpen size={20} style={{ color: "var(--ct-accent-light)" }} />}
+                    videos={completedFilteredVideos}
+                    emptyText={
+                      completedStemFilter === "all"
+                        ? "No completed sessions yet."
+                        : completedStemFilter === "stem"
+                          ? "No completed STEM sessions yet."
+                          : "No completed non-STEM sessions yet."
+                    }
+                    onOpen={openVideo}
+                    onDelete={requestDeleteSession}
+                    onOpenAttempts={setAttemptsVideoId}
+                    deletingSessionId={deleteMutation.isPending ? (deleteMutation.variables ?? null) : null}
+                    insightByVideoId={insightByVideoId}
+                  />
+                </>
+              )}
 
-          <Section
-            title="Non-STEM Watch-Only"
-            icon={<RotateCcw size={20} style={{ color: "var(--ct-text-muted)" }} />}
-            videos={nonStemVideos}
-            emptyText="No non-STEM sessions yet."
-            onOpen={openVideo}
-            insightByVideoId={insightByVideoId}
-          />
-        </>
+              {selectedStatus === "quiz" && (
+                <Section
+                  title="Quiz Pending"
+                  icon={<Sparkles size={20} style={{ color: "var(--ct-warning)" }} />}
+                  videos={quizPendingVideos}
+                  emptyText="No quiz-pending videos yet."
+                  onOpen={openVideo}
+                  onDelete={requestDeleteSession}
+                  onOpenAttempts={setAttemptsVideoId}
+                  deletingSessionId={deleteMutation.isPending ? (deleteMutation.variables ?? null) : null}
+                  insightByVideoId={insightByVideoId}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div
+          className="ct-modal-backdrop"
+          onClick={() => {
+            if (!deleteMutation.isPending) setDeleteTarget(null);
+          }}
+        >
+          <div
+            className="ct-modal-card ct-delete-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="ct-delete-modal-icon">
+              <AlertTriangle size={22} />
+            </div>
+            <h3 className="ct-delete-modal-title">Delete Session?</h3>
+            <p className="ct-delete-modal-text">
+              This will remove the session from My Learnings.
+            </p>
+            <p className="ct-delete-modal-subtext">
+              <strong>{deleteTarget.videoTitle}</strong>
+            </p>
+            <div className="ct-modal-actions">
+              <button
+                className="ct-btn ct-btn-secondary"
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleteMutation.isPending}
+              >
+                Cancel
+              </button>
+              <button
+                className="ct-btn ct-btn-danger"
+                onClick={confirmDeleteSession}
+                disabled={deleteMutation.isPending}
+              >
+                <Trash2 size={15} />
+                {deleteMutation.isPending ? "Deleting..." : "Delete Session"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {attemptsVideoId && (
+        <div
+          onClick={() => setAttemptsVideoId(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(17, 38, 64, 0.35)",
+            zIndex: 1200,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+        >
+          <div
+            className="ct-card"
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: "100%", maxWidth: 760, maxHeight: "80vh", overflowY: "auto" }}
+          >
+            <h3 style={{ fontSize: 18, fontWeight: 800, marginBottom: 6 }}>{attemptsTitle || "Video Attempts"}</h3>
+            <p style={{ fontSize: 13, color: "var(--ct-text-muted)", marginBottom: 14 }}>
+              Attempt history with status and engagement score
+            </p>
+
+            <div style={{ display: "grid", gap: 10 }}>
+              {attemptsSessions.map((s, idx) => (
+                <div
+                  key={s.sessionId}
+                  style={{
+                    border: "1px solid var(--ct-border)",
+                    borderRadius: "var(--ct-radius-sm)",
+                    padding: 10,
+                    background: "var(--ct-bg-card)",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
+                    <div style={{ fontSize: 12, color: "var(--ct-text-muted)" }}>
+                      Attempt {attemptsSessions.length - idx}
+                    </div>
+                    {statusBadge(s.status)}
+                  </div>
+                  <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12, color: "var(--ct-text-secondary)" }}>
+                    <span>Started: {new Date(s.createdAt).toLocaleString()}</span>
+                    <span>Score: {s.engagementScore == null ? "-" : `${(s.engagementScore * 100).toFixed(0)}%`}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ marginTop: 14, display: "flex", justifyContent: "flex-end" }}>
+              <button className="ct-btn ct-btn-secondary ct-btn-sm" onClick={() => setAttemptsVideoId(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

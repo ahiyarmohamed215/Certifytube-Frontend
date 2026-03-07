@@ -2,15 +2,31 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import YouTube from "react-youtube";
-import { AlertTriangle, StopCircle, BarChart3, X, Clock } from "lucide-react";
+import { AlertTriangle, StopCircle, BarChart3, X, Clock, RotateCcw } from "lucide-react";
 import toast from "react-hot-toast";
 
 import { startSession, endSession } from "../../api/sessions";
 import { getDashboard } from "../../api/dashboard";
 import { useEventBatcher } from "./hooks/useEventBatcher";
-import type { DashboardResponse, DashboardVideo, EventPayload, SessionStatus } from "../../types/api";
+import type { DashboardResponse, DashboardVideo, EventPayload, SessionStatus, StartSessionResponse } from "../../types/api";
 
 type LocationState = { videoTitle?: string };
+
+const inflightStartSessionByKey = new Map<string, Promise<StartSessionResponse>>();
+
+function startSessionDeduped(
+  key: string,
+  req: { videoId: string; videoTitle: string },
+): Promise<StartSessionResponse> {
+  const existing = inflightStartSessionByKey.get(key);
+  if (existing) return existing;
+
+  const promise = startSession(req).finally(() => {
+    inflightStartSessionByKey.delete(key);
+  });
+  inflightStartSessionByKey.set(key, promise);
+  return promise;
+}
 
 const STATUS_PRIORITY: Record<SessionStatus, number> = {
   ACTIVE: 1,
@@ -156,10 +172,12 @@ export function WatchPage() {
     if (!videoId) return;
     let cancelled = false;
     const preferredTitle = locState.videoTitle || queryTitle || `Video ${videoId}`;
+    const tokenKey = localStorage.getItem("ct_token") || "anon";
+    const dedupeKey = `${tokenKey}:${videoId}`;
 
     (async () => {
       try {
-        const res = await startSession({
+        const res = await startSessionDeduped(dedupeKey, {
           videoId,
           videoTitle: preferredTitle,
         });
@@ -260,6 +278,34 @@ export function WatchPage() {
       }
     }
   }, [flush, getPendingCount, stopTimer]);
+
+  useEffect(() => {
+    const pauseIfPlaying = () => {
+      const player = playerRef.current;
+      if (!player || sessionEndedRef.current) return;
+      try {
+        const state = Number(player.getPlayerState?.() ?? -1);
+        if (state === 1) {
+          player.pauseVideo?.();
+          stopTimer();
+        }
+      } catch {
+        // noop
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        pauseIfPlaying();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [stopTimer]);
 
   useEffect(() => {
     const handlePageHide = () => {
@@ -475,10 +521,10 @@ export function WatchPage() {
                 id="end-session-btn"
               >
                 <StopCircle size={14} />
-                {endingSession ? "Ending..." : "End Session"}
+                {endingSession ? "Ending..." : (stemEligible ? "End Session" : "Complete")}
               </button>
             ) : (
-              stemEligible && (
+              stemEligible ? (
                 <button
                   className="ct-btn ct-btn-secondary ct-btn-sm"
                   onClick={goAnalyze}
@@ -486,6 +532,14 @@ export function WatchPage() {
                 >
                   <BarChart3 size={14} />
                   Analyze Engagement
+                </button>
+              ) : (
+                <button
+                  className="ct-btn ct-btn-secondary ct-btn-sm"
+                  onClick={() => window.location.reload()}
+                  id="watch-again-btn"
+                >
+                  <RotateCcw size={14} /> Watch Again
                 </button>
               )
             )}

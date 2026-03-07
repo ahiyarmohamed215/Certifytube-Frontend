@@ -4,41 +4,24 @@ import { useQuery } from "@tanstack/react-query";
 import { User, Mail, Shield, Activity, Award, ClipboardCheck, BookOpen, Target, ChevronRight } from "lucide-react";
 import { useAuthStore } from "../../store/useAuthStore";
 import { getDashboard } from "../../api/dashboard";
-import type { DashboardResponse, DashboardVideo, SessionStatus } from "../../types/api";
+import type { DashboardVideo } from "../../types/api";
 
-const STATUS_PRIORITY: Record<SessionStatus, number> = {
-  ACTIVE: 1,
-  COMPLETED: 2,
-  QUIZ_PENDING: 3,
-  CERTIFIED: 4,
-};
+const ENGAGEMENT_THRESHOLD = 0.85;
 
-function pickLatestByVideo(data?: DashboardResponse) {
-  const all = [
-    ...(data?.activeVideos || []),
-    ...(data?.completedVideos || []),
-    ...(data?.quizPendingVideos || []),
-    ...(data?.certifiedVideos || []),
-  ];
+function sortByCreatedDesc(videos: DashboardVideo[]) {
+  return [...videos].sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0));
+}
 
-  const map = new Map<string, DashboardVideo>();
-  for (const video of all) {
-    const existing = map.get(video.videoId);
-    if (!existing) {
-      map.set(video.videoId, video);
-      continue;
-    }
-    const nextTs = Date.parse(video.createdAt) || 0;
-    const existingTs = Date.parse(existing.createdAt) || 0;
-    if (nextTs > existingTs) {
-      map.set(video.videoId, video);
-      continue;
-    }
-    if (nextTs === existingTs && STATUS_PRIORITY[video.status] > STATUS_PRIORITY[existing.status]) {
-      map.set(video.videoId, video);
-    }
+function latestSessionByVideo(videos: DashboardVideo[]) {
+  const sorted = sortByCreatedDesc(videos);
+  const seen = new Set<string>();
+  const out: DashboardVideo[] = [];
+  for (const v of sorted) {
+    if (seen.has(v.videoId)) continue;
+    seen.add(v.videoId);
+    out.push(v);
   }
-  return [...map.values()];
+  return out;
 }
 
 export function ProfilePage() {
@@ -51,12 +34,54 @@ export function ProfilePage() {
   });
 
   const summary = useMemo(() => {
-    const latest = pickLatestByVideo(data);
-    const active = latest.filter((v) => v.status === "ACTIVE").length;
-    const completed = latest.filter((v) => v.status === "COMPLETED").length;
-    const quizPending = latest.filter((v) => v.status === "QUIZ_PENDING").length;
-    const certified = latest.filter((v) => v.status === "CERTIFIED").length;
-    const total = latest.length;
+    const activeLatest = latestSessionByVideo(data?.activeVideos || []);
+    const quizPendingLatest = latestSessionByVideo(data?.quizPendingVideos || []);
+    const completedLatest = latestSessionByVideo(data?.completedVideos || []);
+    const certifiedLatest = latestSessionByVideo(data?.certifiedVideos || []);
+
+    const activeVideoIdSet = new Set(activeLatest.map((v) => v.videoId));
+    const certifiedIssuedVideoIdSet = new Set(
+      certifiedLatest.filter((v) => Boolean(v.certificateId)).map((v) => v.videoId),
+    );
+    const directQuizPendingVisible = quizPendingLatest.filter(
+      (v) => v.stemEligible && !certifiedIssuedVideoIdSet.has(v.videoId),
+    );
+    const directQuizPendingVideoIdSet = new Set(directQuizPendingVisible.map((v) => v.videoId));
+    const promotedQuizPending = completedLatest.filter(
+      (v) =>
+        v.stemEligible
+        && v.engagementScore != null
+        && v.engagementScore >= ENGAGEMENT_THRESHOLD
+        && !certifiedIssuedVideoIdSet.has(v.videoId)
+        && !directQuizPendingVideoIdSet.has(v.videoId),
+    );
+    const promotedFromCertifiedNoCertificate = certifiedLatest.filter(
+      (v) =>
+        v.stemEligible
+        && !v.certificateId
+        && !directQuizPendingVideoIdSet.has(v.videoId),
+    );
+    const quizPendingVideoIdSet = new Set([
+      ...[...directQuizPendingVideoIdSet],
+      ...promotedQuizPending.map((v) => v.videoId),
+      ...promotedFromCertifiedNoCertificate.map((v) => v.videoId),
+    ]);
+    const activeVisible = activeLatest.filter(
+      (v) =>
+        v.stemEligible
+        && !quizPendingVideoIdSet.has(v.videoId)
+        && !certifiedIssuedVideoIdSet.has(v.videoId),
+    );
+    const completedVisible = completedLatest.filter(
+      (v) => !activeVideoIdSet.has(v.videoId) && !quizPendingVideoIdSet.has(v.videoId) && !certifiedIssuedVideoIdSet.has(v.videoId),
+    );
+
+    // Keep counts aligned with My Learnings status cards and visibility rules.
+    const active = activeVisible.length;
+    const completed = completedVisible.length;
+    const quizPending = quizPendingVideoIdSet.size;
+    const certified = certifiedLatest.filter((v) => v.stemEligible && Boolean(v.certificateId)).length;
+    const total = active + completed + quizPending + certified;
     const completionRate = total > 0 ? Math.round(((completed + quizPending + certified) / total) * 100) : 0;
     const certificationRate = total > 0 ? Math.round((certified / total) * 100) : 0;
     return { active, completed, quizPending, certified, total, completionRate, certificationRate };

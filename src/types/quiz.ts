@@ -2,9 +2,20 @@
 
 export interface QuizQuestion {
   questionId: string;
-  questionType: 'mcq' | 'true_false' | 'fill';
+  questionType:
+    | 'mcq'
+    | 'true_false'
+    | 'fill'
+    | 'fill_blank'
+    | 'fill_in_the_blank'
+    | 'short'
+    | 'short_answer'
+    | string;
   questionText: string;
   options?: string[];
+  correctAnswer?: string;
+  answer?: string;
+  explanation?: string;
 }
 
 export interface QuizGenerateRequest {
@@ -36,6 +47,33 @@ export interface QuizSubmitResponse {
   passed: boolean;
   certificateId: string | null;
   verificationLink: string | null;
+  explanation?: string | null;
+  feedback?: string | null;
+  review?: QuizReviewItem[];
+  questionResults?: QuizReviewItem[];
+  wrongQuestions?: QuizReviewItem[];
+  incorrectQuestions?: QuizReviewItem[];
+  answers?: Record<string, string>;
+  userAnswers?: Record<string, string>;
+  correctAnswers?: Record<string, string>;
+  wrongQuestionIds?: string[];
+  incorrectQuestionIds?: string[];
+}
+
+export interface QuizReviewItem {
+  questionId?: string;
+  questionText?: string;
+  selectedAnswer?: string;
+  submittedAnswer?: string;
+  userAnswer?: string;
+  answer?: string;
+  correctAnswer?: string;
+  expectedAnswer?: string;
+  isCorrect?: boolean;
+  correct?: boolean;
+  explanation?: string;
+  reason?: string;
+  feedback?: string;
 }
 
 export interface QuizEligibility {

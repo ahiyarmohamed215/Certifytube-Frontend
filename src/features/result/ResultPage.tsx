@@ -1,139 +1,504 @@
-import { useState, useEffect } from "react";
-import { useParams, useNavigate, useLocation } from "react-router-dom";
-import { Award, Download, Share2, Home, CheckCircle, XCircle } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { Award, CheckCircle, Download, Home, Share2, XCircle } from "lucide-react";
 import toast from "react-hot-toast";
-import { getQuizResult } from "../../api/quiz";
+
 import { downloadCertificatePdf } from "../../api/certificate";
-import type { QuizSubmitResponse } from "../../types/quiz";
+import { getQuiz, getQuizResult } from "../../api/quiz";
+import type { QuizQuestion, QuizReviewItem, QuizSubmitResponse } from "../../types/quiz";
+
+type ResultLocationState = {
+  result?: QuizSubmitResponse;
+  quizQuestions?: QuizQuestion[];
+  submittedAnswers?: Record<string, string>;
+  submitError?: string;
+};
+
+type ReviewRow = {
+  questionId: string;
+  questionText: string;
+  yourAnswer: string;
+  correctAnswer: string | null;
+  isCorrect: boolean | null;
+  explanation: string | null;
+};
+
+function asText(value: unknown): string {
+  if (value == null) return "";
+  return String(value).trim();
+}
+
+function answerNorm(value: unknown): string {
+  return asText(value).toLowerCase();
+}
+
+function questionKey(q: QuizQuestion, idx: number): string {
+  const key = asText(q.questionId);
+  return key.length > 0 ? key : `q${idx + 1}`;
+}
+
+function toRecord(value: unknown): Record<string, string> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    out[k] = asText(v);
+  }
+  return out;
+}
+
+function reviewArraySource(raw: any): { key: string; items: any[] } | null {
+  const keys = [
+    "review",
+    "questionResults",
+    "answerReview",
+    "evaluation",
+    "wrongQuestions",
+    "incorrectQuestions",
+  ];
+  for (const key of keys) {
+    const val = raw?.[key];
+    if (Array.isArray(val) && val.length > 0) {
+      return { key, items: val };
+    }
+  }
+  return null;
+}
+
+function buildReviewRows(
+  result: QuizSubmitResponse | null,
+  quizQuestions: QuizQuestion[],
+  submittedAnswers: Record<string, string>,
+): ReviewRow[] {
+  if (!result) return [];
+  const raw: any = result;
+
+  const questionTextById = new Map<string, string>();
+  for (let i = 0; i < quizQuestions.length; i += 1) {
+    const q = quizQuestions[i];
+    const key = questionKey(q, i);
+    questionTextById.set(key, asText(q.questionText) || `Question ${i + 1}`);
+    questionTextById.set(`q${i + 1}`, asText(q.questionText) || `Question ${i + 1}`);
+    if (asText(q.questionId)) questionTextById.set(asText(q.questionId), asText(q.questionText) || `Question ${i + 1}`);
+  }
+
+  const answersFromResult = toRecord(raw?.answers) || toRecord(raw?.userAnswers) || {};
+  const mergedAnswers: Record<string, string> = { ...answersFromResult, ...submittedAnswers };
+
+  const source = reviewArraySource(raw);
+  if (source) {
+    const assumeWrong = source.key === "wrongQuestions" || source.key === "incorrectQuestions";
+
+    return source.items.map((item: QuizReviewItem | any, idx: number) => {
+      const sourceId =
+        asText(item?.questionId)
+        || asText(item?.id)
+        || asText(item?.qid)
+        || asText(item?.questionKey)
+        || asText(item?.key)
+        || `q${idx + 1}`;
+
+      const text =
+        asText(item?.questionText)
+        || asText(item?.question)
+        || asText(item?.text)
+        || questionTextById.get(sourceId)
+        || questionTextById.get(`q${idx + 1}`)
+        || `Question ${idx + 1}`;
+
+      const your =
+        asText(item?.selectedAnswer)
+        || asText(item?.submittedAnswer)
+        || asText(item?.userAnswer)
+        || asText(item?.answer)
+        || asText(mergedAnswers[sourceId]);
+
+      const correct = asText(item?.correctAnswer) || asText(item?.expectedAnswer) || "";
+
+      let isCorrect: boolean | null = null;
+      if (typeof item?.isCorrect === "boolean") {
+        isCorrect = item.isCorrect;
+      } else if (typeof item?.correct === "boolean") {
+        isCorrect = item.correct;
+      } else if (assumeWrong) {
+        isCorrect = false;
+      } else if (your && correct) {
+        isCorrect = answerNorm(your) === answerNorm(correct);
+      }
+
+      const explanation = asText(item?.explanation) || asText(item?.reason) || asText(item?.feedback);
+
+      return {
+        questionId: sourceId,
+        questionText: text,
+        yourAnswer: your,
+        correctAnswer: correct || null,
+        isCorrect,
+        explanation: explanation || null,
+      };
+    });
+  }
+
+  const correctAnswers = toRecord(raw?.correctAnswers);
+  if (correctAnswers) {
+    const keys = new Set<string>([
+      ...Object.keys(correctAnswers),
+      ...Object.keys(mergedAnswers),
+      ...quizQuestions.map((q, idx) => questionKey(q, idx)),
+    ]);
+
+    return [...keys].map((id, idx) => {
+      const your = asText(mergedAnswers[id]);
+      const correct = asText(correctAnswers[id]);
+      const text = questionTextById.get(id) || questionTextById.get(`q${idx + 1}`) || `Question ${idx + 1}`;
+
+      let isCorrect: boolean | null = null;
+      if (your && correct) {
+        isCorrect = answerNorm(your) === answerNorm(correct);
+      }
+
+      return {
+        questionId: id,
+        questionText: text,
+        yourAnswer: your,
+        correctAnswer: correct || null,
+        isCorrect,
+        explanation: null,
+      };
+    });
+  }
+
+  const wrongIds = Array.isArray(raw?.wrongQuestionIds)
+    ? raw.wrongQuestionIds
+    : Array.isArray(raw?.incorrectQuestionIds)
+      ? raw.incorrectQuestionIds
+      : [];
+  if (wrongIds.length > 0) {
+    return wrongIds.map((id: string, idx: number) => ({
+      questionId: id,
+      questionText: questionTextById.get(id) || questionTextById.get(`q${idx + 1}`) || id,
+      yourAnswer: asText(mergedAnswers[id]),
+      correctAnswer: null,
+      isCorrect: false,
+      explanation: null,
+    }));
+  }
+
+  return [];
+}
 
 export function ResultPage() {
-    const { quizId } = useParams();
-    const nav = useNavigate();
-    const location = useLocation();
-    const stateResult = (location.state as any)?.result as QuizSubmitResponse | undefined;
+  const { quizId } = useParams();
+  const nav = useNavigate();
+  const location = useLocation();
+  const locationState = (location.state as ResultLocationState | null) || null;
 
-    const [result, setResult] = useState<QuizSubmitResponse | null>(stateResult || null);
-    const [loading, setLoading] = useState(!stateResult);
-    const [downloading, setDownloading] = useState(false);
+  const stateResult = locationState?.result;
+  const [result, setResult] = useState<QuizSubmitResponse | null>(stateResult || null);
+  const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>(locationState?.quizQuestions || []);
+  const [submittedAnswers, setSubmittedAnswers] = useState<Record<string, string>>(locationState?.submittedAnswers || {});
+  const submitError = locationState?.submitError || "";
 
-    useEffect(() => {
-        if (stateResult || !quizId) return;
-        (async () => {
-            try {
-                const r = await getQuizResult(quizId);
-                setResult(r);
-            } catch (e: any) {
-                toast.error(e?.message || "Failed to load result");
-            } finally {
-                setLoading(false);
-            }
-        })();
-    }, [quizId, stateResult]);
+  const [loading, setLoading] = useState(!stateResult);
+  const [downloading, setDownloading] = useState(false);
+  const [resolvingCertificate, setResolvingCertificate] = useState(false);
 
-    const handleDownload = async () => {
-        if (!result?.certificateId) return;
-        setDownloading(true);
-        try {
-            await downloadCertificatePdf(result.certificateId);
-            toast.success("Certificate downloaded!");
-        } catch (e: any) {
-            toast.error(e?.message || "Download failed");
-        } finally {
-            setDownloading(false);
-        }
+  useEffect(() => {
+    if (stateResult || !quizId) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await getQuizResult(quizId);
+        if (cancelled) return;
+        setResult(r);
+      } catch (e: any) {
+        if (cancelled) return;
+        toast.error(e?.message || "Failed to load result");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
     };
+  }, [quizId, stateResult]);
 
-    const handleShare = () => {
-        if (!result?.verificationLink) return;
-        navigator.clipboard.writeText(result.verificationLink);
-        toast.success("Verification link copied to clipboard!");
+  useEffect(() => {
+    if (!quizId || quizQuestions.length > 0) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const q = await getQuiz(quizId);
+        if (cancelled) return;
+        setQuizQuestions(q.questions || []);
+      } catch {
+        // quiz detail not critical for result header
+      }
+    })();
+
+    return () => {
+      cancelled = true;
     };
+  }, [quizId, quizQuestions.length]);
 
-    if (loading) {
-        return (
-            <div className="ct-loading" style={{ minHeight: 300 }}>
-                <div className="ct-spinner" />
-                <span>Loading result…</span>
-            </div>
-        );
+  useEffect(() => {
+    if (Object.keys(submittedAnswers).length > 0 || !result) return;
+    const fromResult = toRecord((result as any)?.answers) || toRecord((result as any)?.userAnswers);
+    if (fromResult) setSubmittedAnswers(fromResult);
+  }, [result, submittedAnswers]);
+
+  useEffect(() => {
+    if (!quizId || !result?.passed || result.certificateId) return;
+    const timer = window.setTimeout(async () => {
+      try {
+        const latest = await getQuizResult(quizId);
+        setResult(latest);
+      } catch {
+        // ignore silent refresh failures
+      }
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [quizId, result?.passed, result?.certificateId]);
+
+  const explanation = useMemo(() => {
+    const raw: any = result;
+    const fromBackend = asText(raw?.explanation) || asText(raw?.feedback);
+    if (fromBackend) return fromBackend;
+    if (!result) return "";
+    if (result.passed) {
+      return "You passed the quiz based on your score and correct answer count. You can now open your certificate.";
+    }
+    return "You did not reach the passing score. Review incorrect answers, watch again, and retry the quiz.";
+  }, [result]);
+
+  const reviewRows = useMemo(
+    () => buildReviewRows(result, quizQuestions, submittedAnswers),
+    [result, quizQuestions, submittedAnswers],
+  );
+
+  const wrongRows = useMemo(
+    () => reviewRows.filter((row) => row.isCorrect === false),
+    [reviewRows],
+  );
+
+  const canShowWrongRows = useMemo(
+    () => wrongRows.length > 0,
+    [wrongRows],
+  );
+
+  const refreshResultOnce = async (): Promise<QuizSubmitResponse | null> => {
+    if (!quizId) return result;
+    try {
+      const latest = await getQuizResult(quizId);
+      setResult(latest);
+      return latest;
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to refresh quiz result");
+      return null;
+    }
+  };
+
+  const handleGetCertificate = async () => {
+    if (!result?.passed) return;
+
+    let latest = result;
+    if (!latest.certificateId) {
+      setResolvingCertificate(true);
+      const refreshed = await refreshResultOnce();
+      setResolvingCertificate(false);
+      latest = refreshed || latest;
     }
 
-    if (!result) {
-        return <div className="ct-empty">Result not found</div>;
+    if (!latest?.certificateId) {
+      toast.error("Certificate is not ready yet. Please try again.");
+      return;
     }
 
+    nav(`/certificate/${latest.certificateId}`);
+  };
+
+  const handleDownload = async () => {
+    if (!result?.passed) return;
+
+    let certificateId = result.certificateId;
+    if (!certificateId) {
+      const refreshed = await refreshResultOnce();
+      certificateId = refreshed?.certificateId || null;
+    }
+    if (!certificateId) {
+      toast.error("Certificate is not ready yet. Please try again.");
+      return;
+    }
+
+    setDownloading(true);
+    try {
+      await downloadCertificatePdf(certificateId);
+      toast.success("Certificate downloaded");
+    } catch (e: any) {
+      toast.error(e?.message || "Download failed");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const handleShare = async () => {
+    let verificationLink = result?.verificationLink || null;
+    if (!verificationLink) {
+      const refreshed = await refreshResultOnce();
+      verificationLink = refreshed?.verificationLink || null;
+    }
+
+    if (!verificationLink) {
+      toast.error("Verification link is not available yet.");
+      return;
+    }
+    await navigator.clipboard.writeText(verificationLink);
+    toast.success("Verification link copied");
+  };
+
+  if (loading) {
     return (
-        <div className="ct-slide-up" style={{ maxWidth: 600, margin: "0 auto", textAlign: "center" }}>
-            {/* Result hero */}
-            <div className="ct-glass-card" style={{ marginBottom: 24 }}>
-                {result.passed ? (
-                    <>
-                        <div style={{ marginBottom: 16 }}>
-                            <Award size={64} style={{ color: "var(--ct-success)" }} />
-                        </div>
-                        <h1 style={{ fontSize: 28, fontWeight: 800, color: "var(--ct-success)", marginBottom: 8 }}>
-                            <CheckCircle size={28} style={{ verticalAlign: "middle", marginRight: 8 }} />
-                            Quiz Passed!
-                        </h1>
-                        <p style={{ color: "var(--ct-text-secondary)" }}>
-                            Congratulations! You've earned your certificate.
-                        </p>
-                    </>
-                ) : (
-                    <>
-                        <div style={{ marginBottom: 16 }}>
-                            <XCircle size={64} style={{ color: "var(--ct-error)" }} />
-                        </div>
-                        <h1 style={{ fontSize: 28, fontWeight: 800, color: "var(--ct-error)", marginBottom: 8 }}>
-                            Quiz Not Passed
-                        </h1>
-                        <p style={{ color: "var(--ct-text-secondary)" }}>
-                            Keep trying! Review the video and attempt again.
-                        </p>
-                    </>
-                )}
-
-                <div style={{ marginTop: 24, display: "flex", justifyContent: "center", gap: 32 }}>
-                    <div>
-                        <div style={{ fontSize: 36, fontWeight: 800, background: result.passed ? "var(--ct-gradient-success)" : "var(--ct-gradient-warm)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
-                            {result.scorePercent.toFixed(0)}%
-                        </div>
-                        <div style={{ fontSize: 12, color: "var(--ct-text-muted)" }}>Score</div>
-                    </div>
-                    <div>
-                        <div style={{ fontSize: 36, fontWeight: 800, color: "var(--ct-text)" }}>
-                            {result.correctCount}/{result.totalCount}
-                        </div>
-                        <div style={{ fontSize: 12, color: "var(--ct-text-muted)" }}>Correct</div>
-                    </div>
-                </div>
-            </div>
-
-            {/* Actions */}
-            <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
-                {result.passed && result.certificateId && (
-                    <>
-                        <button className="ct-btn ct-btn-primary" onClick={handleDownload} disabled={downloading} id="download-cert-btn">
-                            <Download size={16} />
-                            {downloading ? "Downloading…" : "Download Certificate"}
-                        </button>
-                        <button
-                            className="ct-btn ct-btn-secondary"
-                            onClick={() => nav(`/certificate/${result.certificateId}`)}
-                        >
-                            <Award size={16} /> View Certificate
-                        </button>
-                    </>
-                )}
-                {result.verificationLink && (
-                    <button className="ct-btn ct-btn-secondary" onClick={handleShare} id="share-link-btn">
-                        <Share2 size={16} /> Copy Verification Link
-                    </button>
-                )}
-                <button className="ct-btn ct-btn-ghost" onClick={() => nav("/my-learnings")}>
-                    <Home size={16} /> My Learnings
-                </button>
-            </div>
-        </div>
+      <div className="ct-loading" style={{ minHeight: 300 }}>
+        <div className="ct-spinner" />
+        <span>Loading result...</span>
+      </div>
     );
+  }
+
+  if (!result) return <div className="ct-empty">Result not found</div>;
+
+  return (
+    <div className="ct-slide-up" style={{ maxWidth: 900, margin: "0 auto" }}>
+      <div className="ct-glass-card" style={{ marginBottom: 18, textAlign: "center" }}>
+        {result.passed ? (
+          <>
+            <Award size={62} style={{ color: "var(--ct-success)", marginBottom: 12 }} />
+            <h1 style={{ fontSize: 28, fontWeight: 800, color: "var(--ct-success)", marginBottom: 8 }}>
+              <CheckCircle size={26} style={{ verticalAlign: "middle", marginRight: 8 }} />
+              Quiz Passed
+            </h1>
+          </>
+        ) : (
+          <>
+            <XCircle size={62} style={{ color: "var(--ct-error)", marginBottom: 12 }} />
+            <h1 style={{ fontSize: 28, fontWeight: 800, color: "var(--ct-error)", marginBottom: 8 }}>
+              Quiz Not Passed
+            </h1>
+          </>
+        )}
+
+        <div style={{ marginTop: 18, display: "flex", justifyContent: "center", gap: 30 }}>
+          <div>
+            <div
+              style={{
+                fontSize: 34,
+                fontWeight: 800,
+                background: result.passed ? "var(--ct-gradient-success)" : "var(--ct-gradient-warm)",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+              }}
+            >
+              {result.scorePercent.toFixed(0)}%
+            </div>
+            <div style={{ fontSize: 12, color: "var(--ct-text-muted)" }}>Score</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 34, fontWeight: 800, color: "var(--ct-text)" }}>
+              {result.correctCount}/{result.totalCount}
+            </div>
+            <div style={{ fontSize: 12, color: "var(--ct-text-muted)" }}>Correct</div>
+          </div>
+        </div>
+      </div>
+
+      {submitError && (
+        <div className="ct-banner ct-banner-warning" style={{ marginBottom: 18 }}>
+          {submitError}
+        </div>
+      )}
+
+      <div className="ct-card" style={{ marginBottom: 18 }}>
+        <h2 className="ct-section-title" style={{ fontSize: 18, marginBottom: 10 }}>Result Explanation</h2>
+        <p style={{ color: "var(--ct-text-secondary)", fontSize: 14, lineHeight: 1.6 }}>
+          {explanation}
+        </p>
+      </div>
+
+      {!result.passed && (
+        <div className="ct-card" style={{ marginBottom: 18 }}>
+          <h2 className="ct-section-title" style={{ fontSize: 18, marginBottom: 10 }}>Incorrect Questions</h2>
+
+          {canShowWrongRows ? (
+            <div style={{ display: "grid", gap: 10 }}>
+              {wrongRows.map((row, idx) => (
+                <div
+                  key={`${row.questionId}-${idx}`}
+                  style={{
+                    border: "1px solid rgba(239, 68, 68, 0.24)",
+                    background: "rgba(239, 68, 68, 0.06)",
+                    borderRadius: "var(--ct-radius-sm)",
+                    padding: 12,
+                  }}
+                >
+                  <div style={{ fontWeight: 700, marginBottom: 6 }}>
+                    Q{idx + 1}. {row.questionText}
+                  </div>
+                  <div style={{ fontSize: 13, color: "var(--ct-text-secondary)" }}>
+                    Your answer: <strong>{row.yourAnswer || "-"}</strong>
+                  </div>
+                  {row.correctAnswer && (
+                    <div style={{ fontSize: 13, color: "var(--ct-text-secondary)" }}>
+                      Correct answer: <strong>{row.correctAnswer}</strong>
+                    </div>
+                  )}
+                  {row.explanation && (
+                    <div style={{ fontSize: 12, color: "var(--ct-text-muted)", marginTop: 6 }}>
+                      {row.explanation}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="ct-banner ct-banner-warning">
+              Backend did not return question-level wrong-answer details for this result.
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
+        {result.passed && (
+          <button
+            className="ct-btn ct-btn-primary"
+            onClick={handleGetCertificate}
+            disabled={resolvingCertificate}
+            id="get-certificate-btn"
+          >
+            <Award size={16} />
+            {resolvingCertificate ? "Checking certificate..." : "Get Certificate"}
+          </button>
+        )}
+
+        {result.passed && (
+          <button className="ct-btn ct-btn-secondary" onClick={handleDownload} disabled={downloading} id="download-cert-btn">
+            <Download size={16} />
+            {downloading ? "Downloading..." : "Download Certificate PDF"}
+          </button>
+        )}
+
+        {result.verificationLink && (
+          <button className="ct-btn ct-btn-secondary" onClick={handleShare} id="share-link-btn">
+            <Share2 size={16} /> Copy Verification Link
+          </button>
+        )}
+
+        <button className="ct-btn ct-btn-ghost" onClick={() => nav("/my-learnings")}>
+          <Home size={16} /> My Learnings
+        </button>
+      </div>
+    </div>
+  );
 }

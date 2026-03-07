@@ -14,6 +14,20 @@ export async function endSession(sessionId: string): Promise<void> {
   await http.post("/api/sessions/end", null, { params: { sessionId } });
 }
 
+export async function deleteSessionRecord(sessionId: string): Promise<void> {
+  try {
+    await http.delete(`/api/sessions/${sessionId}`);
+    return;
+  } catch {
+    try {
+      await http.delete(`/api/admin/sessions/${sessionId}`);
+      return;
+    } catch {
+      throw new Error("Delete API not available for learner. Add DELETE /api/sessions/{sessionId} in backend.");
+    }
+  }
+}
+
 export async function analyzeSession(
   sessionId: string,
   model?: string

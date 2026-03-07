@@ -36,7 +36,7 @@ export function AppShell({ children }: PropsWithChildren) {
       <header className="ct-header">
         <div className="ct-header-inner">
           <Link to={isLoggedIn ? "/home" : "/"} className="ct-logo">
-            certifytube
+            CertifyTube
           </Link>
 
           <nav className="ct-nav">
@@ -120,7 +120,24 @@ export function AppShell({ children }: PropsWithChildren) {
         </div>
       </header>
 
-      <main className="ct-main ct-fade-in">{children}</main>
+      <main className="ct-main">
+        <div key={location.pathname} className="ct-route-switch">
+          {children}
+        </div>
+      </main>
+
+      <footer className="ct-footer">
+        <div className="ct-footer-inner">
+          <span className="ct-footer-text">
+            © {new Date().getFullYear()} CertifyTube — Watch. Learn. Get Certified.
+          </span>
+          <div className="ct-footer-links">
+            <Link to="/">Home</Link>
+            <Link to="/login">Login</Link>
+            <Link to="/signup">Sign Up</Link>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }

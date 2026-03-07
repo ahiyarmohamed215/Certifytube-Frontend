@@ -164,11 +164,11 @@ function SessionsTab({ qc }: { qc: any }) {
     return (
         <div className="ct-table-wrap">
             <table className="ct-table">
-                <thead><tr><th>Session ID</th><th>User</th><th>Video</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
+                <thead><tr><th>Record</th><th>User</th><th>Video</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
                 <tbody>
-                    {data?.map((s) => (
+                    {data?.map((s, idx) => (
                         <tr key={s.sessionId}>
-                            <td style={{ fontFamily: "monospace", fontSize: 12 }}>{s.sessionId.slice(0, 8)}…</td>
+                            <td style={{ fontSize: 12 }}>{idx + 1}</td>
                             <td>{s.userId}</td>
                             <td style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.videoTitle}</td>
                             <td><span className={`ct-badge ct-badge-${s.status.toLowerCase()}`}>{s.status}</span></td>
@@ -258,3 +258,4 @@ function QuizzesTab({ qc }: { qc: any }) {
         </div>
     );
 }
+

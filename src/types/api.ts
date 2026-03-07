@@ -1,4 +1,4 @@
-/* ===== API Types — aligned to backend contract ===== */
+/* ===== API Types - aligned to backend contract ===== */
 
 // ---- Auth ----
 export interface AuthResponse {
@@ -122,6 +122,16 @@ export interface CertificateInfo {
   verificationToken: string;
   verificationLink: string;
   createdAtUtc: string;
+  learnerName?: string;
+  videoId?: string;
+  videoTitle?: string;
+  videoUrl?: string;
+  engagementScore?: number;
+  quizScore?: number;
+  engagementThreshold?: number;
+  quizThreshold?: number;
+  platformName?: string;
+  platformAttribution?: string;
 }
 
 // ---- Admin ----
@@ -164,3 +174,4 @@ export interface AdminQuiz {
   difficulty: string;
   totalQuestions: number;
 }
+

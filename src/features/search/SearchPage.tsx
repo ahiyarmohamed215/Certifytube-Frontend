@@ -266,11 +266,13 @@ export function SearchPage() {
 
     const pastedVideoId = extractYouTubeVideoId(text);
     if (pastedVideoId) {
+      setQ("");
       nav(`/watch/${pastedVideoId}`);
       return;
     }
 
     setSubmitted(text);
+    setQ("");
   };
 
   const handlePasteUrl = async () => {
