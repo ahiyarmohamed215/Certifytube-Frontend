@@ -1,4 +1,4 @@
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Play, BarChart3, ClipboardCheck, Award, BookOpen, Clock, RotateCcw, Sparkles, Trash2, AlertTriangle } from "lucide-react";
@@ -311,6 +311,7 @@ export function MyLearningsPage() {
   const [selectedStatus, setSelectedStatus] = useState<"active" | "completed" | "quiz">("active");
   const [activeStemFilter, setActiveStemFilter] = useState<StemFilter>("all");
   const [completedStemFilter, setCompletedStemFilter] = useState<StemFilter>("all");
+  const hasOpenModal = Boolean(deleteTarget || attemptsVideoId);
 
   const { data, isLoading } = useQuery({
     queryKey: ["dashboard", "all-statuses"],
@@ -343,102 +344,38 @@ export function MyLearningsPage() {
     [allSessions, attemptsVideoId],
   );
   const attemptsTitle = attemptsSessions[0]?.videoTitle || "";
-  const activeLatest = useMemo(() => latestSessionByVideo(activeAll), [activeAll]);
-  const quizPendingLatest = useMemo(() => latestSessionByVideo(quizPendingAll), [quizPendingAll]);
-  const completedLatest = useMemo(() => latestSessionByVideo(completedAll), [completedAll]);
-  const certifiedLatest = useMemo(() => latestSessionByVideo(certifiedAll), [certifiedAll]);
-
-  const activeVideoIdSet = useMemo(() => new Set(activeLatest.map((v) => v.videoId)), [activeLatest]);
-  const certifiedIssuedVideoIdSet = useMemo(
-    () => new Set(certifiedLatest.filter((v) => Boolean(v.certificateId)).map((v) => v.videoId)),
-    [certifiedLatest],
-  );
 
   const absoluteLatest = useMemo(() => latestSessionByVideo(allSessions), [allSessions]);
-  const absoluteLatestActiveVideoIdSet = useMemo(
-    () => new Set(absoluteLatest.filter((v) => v.status === "ACTIVE").map((v) => v.videoId)),
-    [absoluteLatest]
-  );
 
-  // Journey visibility rules:
-  // 1) Any engaged session (>= threshold) should appear in QUIZ_PENDING until certificate exists.
-  // 2) If a video has CERTIFIED with certificateId, hide it from QUIZ_PENDING/COMPLETED.
-  // 3) COMPLETED is hidden when video is already in QUIZ_PENDING.
-  // 4) If the absolute latest session is ACTIVE (user clicked Watch Again), hide it from QUIZ_PENDING so it shows as Active.
-  const directQuizPendingVideos = useMemo(
-    () => quizPendingLatest.filter((v) => v.stemEligible && !certifiedIssuedVideoIdSet.has(v.videoId) && !absoluteLatestActiveVideoIdSet.has(v.videoId)),
-    [quizPendingLatest, certifiedIssuedVideoIdSet, absoluteLatestActiveVideoIdSet],
-  );
-  const directQuizPendingVideoIdSet = useMemo(
-    () => new Set(directQuizPendingVideos.map((v) => v.videoId)),
-    [directQuizPendingVideos],
-  );
-  const promotedFromCompletedToQuizPending = useMemo(
-    () => completedLatest
-      .filter(
-        (v) =>
-          v.stemEligible
-          && v.engagementScore != null
-          && v.engagementScore >= ENGAGEMENT_THRESHOLD
-          && !certifiedIssuedVideoIdSet.has(v.videoId)
-          && !directQuizPendingVideoIdSet.has(v.videoId)
-          && !absoluteLatestActiveVideoIdSet.has(v.videoId),
-      )
-      .map((v) => ({ ...v, status: "QUIZ_PENDING" as const })),
-    [completedLatest, certifiedIssuedVideoIdSet, directQuizPendingVideoIdSet, absoluteLatestActiveVideoIdSet],
-  );
-  const promotedFromCertifiedNoCertificate = useMemo(
-    () => certifiedLatest
-      .filter(
-        (v) =>
-          v.stemEligible
-          && !v.certificateId
-          && !directQuizPendingVideoIdSet.has(v.videoId)
-          && !absoluteLatestActiveVideoIdSet.has(v.videoId),
-      )
-      .map((v) => ({ ...v, status: "QUIZ_PENDING" as const })),
-    [certifiedLatest, directQuizPendingVideoIdSet, absoluteLatestActiveVideoIdSet],
-  );
-  const quizPendingVideos = useMemo(
-    () => latestSessionByVideo(sortByCreatedDesc([
-      ...directQuizPendingVideos,
-      ...promotedFromCompletedToQuizPending,
-      ...promotedFromCertifiedNoCertificate,
-    ])),
-    [directQuizPendingVideos, promotedFromCompletedToQuizPending, promotedFromCertifiedNoCertificate],
-  );
-  const quizPendingVideoIdSet = useMemo(
-    () => new Set(quizPendingVideos.map((v) => v.videoId)),
-    [quizPendingVideos],
-  );
-  const activeVideos = useMemo(
-    () =>
-      activeLatest.filter(
-        (v) =>
-          v.stemEligible
-          && !quizPendingVideoIdSet.has(v.videoId)
-          && !certifiedIssuedVideoIdSet.has(v.videoId),
-      ),
-    [activeLatest, quizPendingVideoIdSet, certifiedIssuedVideoIdSet],
-  );
-  const activeNonStemVideos = useMemo(
-    () =>
-      activeLatest.filter(
-        (v) =>
-          !v.stemEligible
-          && !quizPendingVideoIdSet.has(v.videoId)
-          && !certifiedIssuedVideoIdSet.has(v.videoId),
-      ),
-    [activeLatest, quizPendingVideoIdSet, certifiedIssuedVideoIdSet],
-  );
-  const completedVideos = useMemo(
-    () => completedLatest.filter((v) => v.stemEligible && !activeVideoIdSet.has(v.videoId) && !quizPendingVideoIdSet.has(v.videoId) && !certifiedIssuedVideoIdSet.has(v.videoId)),
-    [completedLatest, activeVideoIdSet, quizPendingVideoIdSet, certifiedIssuedVideoIdSet],
-  );
-  const completedNonStemVideos = useMemo(
-    () => completedLatest.filter((v) => !v.stemEligible && !activeVideoIdSet.has(v.videoId) && !certifiedIssuedVideoIdSet.has(v.videoId)),
-    [completedLatest, activeVideoIdSet, certifiedIssuedVideoIdSet],
-  );
+  const quizPendingVideos = useMemo(() => {
+    return absoluteLatest.filter((v) => {
+      if (!v.stemEligible) return false;
+      if (v.status === "QUIZ_PENDING") return true;
+      if (v.status === "COMPLETED" && v.engagementScore != null && v.engagementScore >= ENGAGEMENT_THRESHOLD) return true;
+      if (v.status === "CERTIFIED" && !v.certificateId) return true;
+      return false;
+    }).map((v) => ({ ...v, status: "QUIZ_PENDING" as const }));
+  }, [absoluteLatest]);
+
+  const activeVideos = useMemo(() => {
+    return absoluteLatest.filter((v) => v.stemEligible && v.status === "ACTIVE");
+  }, [absoluteLatest]);
+
+  const activeNonStemVideos = useMemo(() => {
+    return absoluteLatest.filter((v) => !v.stemEligible && v.status === "ACTIVE");
+  }, [absoluteLatest]);
+
+  const completedVideos = useMemo(() => {
+    return absoluteLatest.filter((v) => {
+      if (!v.stemEligible) return false;
+      if (v.status === "COMPLETED" && (v.engagementScore == null || v.engagementScore < ENGAGEMENT_THRESHOLD)) return true;
+      return false;
+    });
+  }, [absoluteLatest]);
+
+  const completedNonStemVideos = useMemo(() => {
+    return absoluteLatest.filter((v) => !v.stemEligible && v.status === "COMPLETED");
+  }, [absoluteLatest]);
   const activeFilteredVideos = useMemo(() => {
     if (activeStemFilter === "stem") return activeVideos;
     if (activeStemFilter === "nonstem") return activeNonStemVideos;
@@ -507,6 +444,18 @@ export function MyLearningsPage() {
     if (!deleteTarget) return;
     deleteMutation.mutate(deleteTarget.sessionId);
   };
+
+  useEffect(() => {
+    if (!hasOpenModal) return;
+    const prevBodyOverflow = document.body.style.overflow;
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevBodyOverflow;
+      document.documentElement.style.overflow = prevHtmlOverflow;
+    };
+  }, [hasOpenModal]);
 
   return (
     <div className="ct-slide-up">
@@ -703,55 +652,70 @@ export function MyLearningsPage() {
 
       {attemptsVideoId && (
         <div
+          className="ct-modal-backdrop"
           onClick={() => setAttemptsVideoId(null)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(17, 38, 64, 0.35)",
-            zIndex: 1200,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 16,
-          }}
         >
           <div
-            className="ct-card"
+            className="ct-modal-card ct-attempts-modal"
             onClick={(e) => e.stopPropagation()}
-            style={{ width: "100%", maxWidth: 760, maxHeight: "80vh", overflowY: "auto" }}
           >
-            <h3 style={{ fontSize: 18, fontWeight: 800, marginBottom: 6 }}>{attemptsTitle || "Video Attempts"}</h3>
-            <p style={{ fontSize: 13, color: "var(--ct-text-muted)", marginBottom: 14 }}>
-              Attempt history with status and engagement score
-            </p>
+            <div className="ct-attempts-modal-header">
+              <div>
+                <h3 className="ct-attempts-modal-title">
+                  {attemptsTitle || "Video Attempts"}
+                </h3>
+                <p className="ct-attempts-modal-subtitle">
+                  History of your watch sessions and engagement scores
+                </p>
+              </div>
+              <button
+                className="ct-attempts-modal-close"
+                onClick={() => setAttemptsVideoId(null)}
+                aria-label="Close attempts modal"
+              >
+                <span style={{ fontSize: 20, lineHeight: 1 }}>&times;</span>
+              </button>
+            </div>
 
-            <div style={{ display: "grid", gap: 10 }}>
+            <div className="ct-attempts-modal-list">
               {attemptsSessions.map((s, idx) => (
                 <div
                   key={s.sessionId}
-                  style={{
-                    border: "1px solid var(--ct-border)",
-                    borderRadius: "var(--ct-radius-sm)",
-                    padding: 10,
-                    background: "var(--ct-bg-card)",
-                  }}
+                  className="ct-attempt-item"
                 >
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
-                    <div style={{ fontSize: 12, color: "var(--ct-text-muted)" }}>
-                      Attempt {attemptsSessions.length - idx}
+                  <div>
+                    <div className="ct-attempt-item-top">
+                      <span className="ct-attempt-item-label">
+                        Attempt {attemptsSessions.length - idx}
+                      </span>
+                      {statusBadge(s.status)}
                     </div>
-                    {statusBadge(s.status)}
+                    <div className="ct-attempt-item-meta">
+                      <span className="ct-attempt-item-time">
+                        <Clock size={12} />
+                        {new Date(s.createdAt).toLocaleString(undefined, {
+                          month: "short", day: "numeric", hour: "numeric", minute: "2-digit"
+                        })}
+                      </span>
+                    </div>
                   </div>
-                  <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12, color: "var(--ct-text-secondary)" }}>
-                    <span>Started: {new Date(s.createdAt).toLocaleString()}</span>
-                    <span>Score: {s.engagementScore == null ? "-" : `${(s.engagementScore * 100).toFixed(0)}%`}</span>
+
+                  <div className="ct-attempt-score">
+                    <div
+                      className={`ct-attempt-score-value ${s.engagementScore != null && s.engagementScore >= ENGAGEMENT_THRESHOLD ? "good" : ""}`}
+                    >
+                      {s.engagementScore == null ? "-" : `${(s.engagementScore * 100).toFixed(0)}%`}
+                    </div>
+                    <div className="ct-attempt-score-label">
+                      Score
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
 
-            <div style={{ marginTop: 14, display: "flex", justifyContent: "flex-end" }}>
-              <button className="ct-btn ct-btn-secondary ct-btn-sm" onClick={() => setAttemptsVideoId(null)}>
+            <div className="ct-attempts-modal-actions">
+              <button className="ct-btn ct-btn-secondary" onClick={() => setAttemptsVideoId(null)}>
                 Close
               </button>
             </div>
