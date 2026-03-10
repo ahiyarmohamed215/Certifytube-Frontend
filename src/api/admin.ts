@@ -51,3 +51,8 @@ export async function getAdminQuizzes(): Promise<AdminQuiz[]> {
 export async function deleteQuiz(quizId: string): Promise<void> {
     await http.delete(`/api/admin/quizzes/${quizId}`);
 }
+
+export async function revokeCertificate(certId: string): Promise<{ message: string; certificateId: string; status: string }> {
+    const res = await http.post(`/api/admin/certificates/${certId}/revoke`);
+    return res.data;
+}

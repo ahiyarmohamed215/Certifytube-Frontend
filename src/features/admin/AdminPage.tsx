@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Shield, Users, Film, Award, ClipboardCheck, Trash2, RefreshCw } from "lucide-react";
+import { Shield, Users, Film, Award, ClipboardCheck, Trash2, RefreshCw, ShieldX } from "lucide-react";
 import toast from "react-hot-toast";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -15,6 +15,7 @@ import {
     deleteSession,
     deleteCertificate,
     deleteQuiz,
+    revokeCertificate,
 } from "../../api/admin";
 
 type Tab = "stats" | "users" | "sessions" | "certificates" | "quizzes";
@@ -196,26 +197,50 @@ function CertificatesTab({ qc }: { qc: any }) {
         onError: (e: any) => toast.error(e?.message || "Delete failed"),
     });
 
+    const revokeMut = useMutation({
+        mutationFn: revokeCertificate,
+        onSuccess: () => { toast.success("Certificate revoked"); qc.invalidateQueries({ queryKey: ["admin-certs"] }); },
+        onError: (e: any) => toast.error(e?.message || "Revoke failed"),
+    });
+
     if (isLoading) return <div className="ct-loading"><div className="ct-spinner" /></div>;
 
     return (
         <div className="ct-table-wrap">
             <table className="ct-table">
-                <thead><tr><th>Cert #</th><th>User</th><th>Score</th><th>Issued</th><th>Actions</th></tr></thead>
+                <thead><tr><th>Cert #</th><th>Learner</th><th>User</th><th>Score</th><th>Status</th><th>Issued</th><th>Actions</th></tr></thead>
                 <tbody>
-                    {data?.map((c) => (
-                        <tr key={c.certificateId}>
-                            <td style={{ fontFamily: "monospace", fontSize: 12 }}>{c.certificateNumber}</td>
-                            <td>{c.userId}</td>
-                            <td>{c.scorePercent?.toFixed(0)}%</td>
-                            <td style={{ fontSize: 12 }}>{new Date(c.createdAtUtc).toLocaleDateString()}</td>
-                            <td>
-                                <button className="ct-btn ct-btn-danger ct-btn-sm" onClick={() => { if (confirm("Delete certificate?")) delMut.mutate(c.certificateId) }}>
-                                    <Trash2 size={12} />
-                                </button>
-                            </td>
-                        </tr>
-                    ))}
+                    {data?.map((c) => {
+                        const isRevoked = c.status === "REVOKED" || c.valid === false;
+                        return (
+                            <tr key={c.certificateId}>
+                                <td style={{ fontFamily: "monospace", fontSize: 12 }}>{c.certificateNumber}</td>
+                                <td>{c.learnerName || "—"}</td>
+                                <td>{c.userId}</td>
+                                <td>{c.scorePercent?.toFixed(0)}%</td>
+                                <td>
+                                    <span className={`ct-badge ${isRevoked ? "ct-badge-revoked" : "ct-badge-certified"}`}>
+                                        {isRevoked ? "REVOKED" : (c.status || "ACTIVE")}
+                                    </span>
+                                </td>
+                                <td style={{ fontSize: 12 }}>{new Date(c.createdAtUtc).toLocaleDateString()}</td>
+                                <td style={{ display: "flex", gap: 6 }}>
+                                    {!isRevoked && (
+                                        <button
+                                            className="ct-btn ct-btn-warning ct-btn-sm"
+                                            onClick={() => { if (confirm("Revoke this certificate? This action cannot be undone.")) revokeMut.mutate(c.certificateId); }}
+                                            disabled={revokeMut.isPending}
+                                        >
+                                            <ShieldX size={12} /> Revoke
+                                        </button>
+                                    )}
+                                    <button className="ct-btn ct-btn-danger ct-btn-sm" onClick={() => { if (confirm("Delete certificate?")) delMut.mutate(c.certificateId) }}>
+                                        <Trash2 size={12} />
+                                    </button>
+                                </td>
+                            </tr>
+                        );
+                    })}
                 </tbody>
             </table>
         </div>
@@ -258,4 +283,3 @@ function QuizzesTab({ qc }: { qc: any }) {
         </div>
     );
 }
-

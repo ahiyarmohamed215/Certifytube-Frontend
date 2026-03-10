@@ -1,80 +1,32 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Download, ExternalLink, Printer, Share2 } from "lucide-react";
+import { ArrowLeft, Download, ExternalLink, Share2, Clock, Award, ShieldCheck, ShieldX } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import toast from "react-hot-toast";
 
-import { getDashboard } from "../../api/dashboard";
 import { downloadCertificatePdf, getCertificate } from "../../api/certificate";
-import { useAuthStore } from "../../store/useAuthStore";
-import type { DashboardVideo } from "../../types/api";
 
-function formatNameFromEmail(email?: string): string {
-  if (!email) return "Certified Learner";
-  const local = email.split("@")[0] || "learner";
-  return local
-    .replace(/[._-]+/g, " ")
-    .split(" ")
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
+function fmtPct(v: number | undefined | null): string {
+  if (v == null || v === 0) return "—";
+  const n = v <= 1 ? v * 100 : v;
+  return `${Math.round(n)}%`;
 }
 
-function findContextVideo(all: DashboardVideo[], sessionId: string, certificateId: string): DashboardVideo | null {
-  const bySession = all.find((v) => v.sessionId === sessionId);
-  if (bySession) return bySession;
-  const byCert = all.find((v) => v.certificateId === certificateId);
-  return byCert || null;
+function fmtDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 }
 
 export function CertificatePage() {
   const { certificateId } = useParams();
   const nav = useNavigate();
-  const { user } = useAuthStore();
-
   const [downloading, setDownloading] = useState(false);
-  const [printing, setPrinting] = useState(false);
 
-  const certQuery = useQuery({
+  const { data: cert, isLoading, isError } = useQuery({
     queryKey: ["certificate", certificateId],
     queryFn: () => getCertificate(certificateId!),
     enabled: Boolean(certificateId),
   });
-
-  const dashboardQuery = useQuery({
-    queryKey: ["dashboard", "certificate-context", certificateId],
-    queryFn: () => getDashboard(),
-    enabled: Boolean(certificateId),
-  });
-
-  const cert = certQuery.data || null;
-
-  const contextVideo = useMemo(() => {
-    if (!cert) return null;
-    const data = dashboardQuery.data;
-    const all = [
-      ...(data?.activeVideos || []),
-      ...(data?.completedVideos || []),
-      ...(data?.quizPendingVideos || []),
-      ...(data?.certifiedVideos || []),
-    ];
-    return findContextVideo(all, cert.sessionId, cert.certificateId);
-  }, [cert, dashboardQuery.data]);
-
-  const learnerName = cert?.learnerName?.trim() || formatNameFromEmail(user?.email);
-  const platformName = cert?.platformName?.trim() || "CertifyTube";
-  const attribution = cert?.platformAttribution?.trim() || "CertifyTube Digital Verification Framework";
-
-  const videoTitle = cert?.videoTitle?.trim() || contextVideo?.videoTitle || "YouTube Educational Content";
-  const videoId = cert?.videoId?.trim() || contextVideo?.videoId || "";
-  const videoUrl = cert?.videoUrl?.trim() || (videoId ? `https://youtube.com/watch?v=${videoId}` : "");
-
-  const engagementThreshold = cert?.engagementThreshold ?? 0.85;
-  const quizThreshold = cert?.quizThreshold ?? 0.8;
-
-  const qrUrl = cert?.verificationLink
-    ? `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(cert.verificationLink)}`
-    : "";
 
   const handleDownload = async () => {
     if (!certificateId) return;
@@ -89,21 +41,13 @@ export function CertificatePage() {
     }
   };
 
-  const handlePrint = () => {
-    setPrinting(true);
-    window.setTimeout(() => {
-      window.print();
-      window.setTimeout(() => setPrinting(false), 300);
-    }, 60);
-  };
-
   const handleShare = () => {
     if (!cert?.verificationLink) return;
     navigator.clipboard.writeText(cert.verificationLink);
-    toast.success("Verification link copied");
+    toast.success("Verification link copied to clipboard");
   };
 
-  if (certQuery.isLoading) {
+  if (isLoading) {
     return (
       <div className="ct-loading" style={{ minHeight: 300 }}>
         <div className="ct-spinner" />
@@ -112,25 +56,28 @@ export function CertificatePage() {
     );
   }
 
-  if (!cert || certQuery.isError) {
+  if (!cert || isError) {
     return <div className="ct-empty">Certificate not found</div>;
   }
-  const issuedYear = new Date(cert.createdAtUtc).getFullYear();
+
+  const isValid = cert.status !== "REVOKED";
+  const videoUrl = cert.videoUrl || (cert.videoId ? `https://youtube.com/watch?v=${cert.videoId}` : "");
+
+  // Score fallbacks: quizScore may be 0 if not populated, use scorePercent instead
+  const engScore = cert.engagementScore && cert.engagementScore > 0 ? cert.engagementScore : null;
+  const quizScore = cert.quizScore && cert.quizScore > 0 ? cert.quizScore : (cert.scorePercent ? cert.scorePercent / 100 : null);
 
   return (
-    <div className="ct-slide-up ct-cert-page-wrap">
+    <div className="ct-slide-up" style={{ maxWidth: 900, margin: "0 auto" }}>
+      {/* Toolbar */}
       <div className="ct-cert-toolbar ct-print-hide">
         <button className="ct-btn ct-btn-ghost ct-btn-sm" onClick={() => nav("/my-learnings")}>
           <ArrowLeft size={14} /> My Learnings
         </button>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button className="ct-btn ct-btn-secondary ct-btn-sm" onClick={handlePrint} disabled={printing}>
-            <Printer size={14} />
-            {printing ? "Preparing..." : "Save Styled PDF"}
-          </button>
           <button className="ct-btn ct-btn-primary ct-btn-sm" onClick={handleDownload} disabled={downloading} id="cert-download-btn">
             <Download size={14} />
-            {downloading ? "Downloading..." : "Download Backend PDF"}
+            {downloading ? "Downloading..." : "Download PDF"}
           </button>
           <button className="ct-btn ct-btn-secondary ct-btn-sm" onClick={handleShare} id="cert-share-btn">
             <Share2 size={14} /> Copy Verify Link
@@ -138,81 +85,106 @@ export function CertificatePage() {
         </div>
       </div>
 
-      <article className="ct-certificate ct-certificate-template" id="certificate-view">
-        <div className="ct-certificate-inner">
-          <header className="ct-cert-top">
-            <section className="ct-cert-top-main">
-              <h1 className="ct-certificate-title">Certificate of Verified Informal Learning</h1>
-              <p className="ct-cert-presented">Proudly presented to</p>
-              <h2 className="ct-cert-learner">{learnerName}</h2>
-
-              <p className="ct-cert-description">
-                Successfully demonstrated verified learning from YouTube educational content under CertifyTube dual-verification criteria.
-              </p>
-
-              <div className="ct-cert-source">
-                <p className="ct-cert-block-title">Video</p>
-                <p className="ct-cert-video-title">{videoTitle}</p>
-                {videoUrl ? (
-                  <a className="ct-cert-video-link" href={videoUrl} target="_blank" rel="noreferrer">
-                    {videoUrl} <ExternalLink size={14} />
-                  </a>
-                ) : (
-                  <p className="ct-cert-muted">Video link unavailable in current API response</p>
-                )}
-              </div>
-
-              <div className="ct-cert-meta-inline">
-                <span className="ct-cert-chip">Certificate Nr: {cert.certificateNumber || cert.certificateId}</span>
-                <span className="ct-cert-chip chip-light">Certified on: {new Date(cert.createdAtUtc).toLocaleDateString()}</span>
-              </div>
-            </section>
-
-            <aside className="ct-cert-top-side">
-              <div className="ct-cert-brand-panel">
-                <div className="ct-cert-brand-mark">
-                  <span className="ct-cert-brand-dot" />
-                  <span>{platformName}</span>
-                </div>
-                <p className="ct-cert-brand-sub">Learning Verification Platform</p>
-              </div>
-              <div className="ct-cert-seal">
-                <span>CERTIFIED</span>
-                <strong>{issuedYear}</strong>
-              </div>
-            </aside>
-          </header>
-
-          <section className="ct-cert-evidence-row">
-            <div className="ct-cert-rule compact">
-              <p className="ct-cert-rule-title">Certification Rule</p>
-              <p className="ct-cert-rule-text">
-                Engagement &gt;= {engagementThreshold.toFixed(2)} AND Quiz &gt;= {quizThreshold.toFixed(2)}
-              </p>
-            </div>
-          </section>
-
-          <footer className="ct-certificate-foot">
-            <div className="ct-cert-sign-wrap">
-              <p className="ct-cert-attribution">
-                Issued by <strong>{attribution}</strong>
-              </p>
-              <p className="ct-cert-attribution-sub">Digitally issued certificate (no physical signature required)</p>
-            </div>
-
-            <div className="ct-cert-foot-right">
-              {qrUrl ? (
-                <>
-                  <img src={qrUrl} alt="Certificate verification QR" className="ct-cert-qr" />
-                  <p className="ct-cert-qr-text">Scan to verify certificate</p>
-                </>
-              ) : (
-                <p className="ct-cert-muted">Verification link unavailable</p>
-              )}
-            </div>
-          </footer>
+      {/* Status Banner */}
+      <div className={`ct-cert-status-banner ${isValid ? "ct-cert-status-valid" : "ct-cert-status-revoked"}`}>
+        {isValid ? <ShieldCheck size={22} /> : <ShieldX size={22} />}
+        <div>
+          <strong>{isValid ? "✅ Valid Certificate" : "❌ Certificate Revoked"}</strong>
+          <p>{isValid ? "This certificate is active and verified by CertifyTube." : "This certificate has been revoked and is no longer valid."}</p>
         </div>
-      </article>
+        <span className={`ct-badge ${isValid ? "ct-badge-certified" : "ct-badge-revoked"}`}>
+          {cert.status || "ACTIVE"}
+        </span>
+      </div>
+
+      {/* Main Certificate Card */}
+      <div className="ct-card ct-cert-detail-card">
+        {/* Learner & Certificate Info */}
+        <div className="ct-cert-detail-header">
+          <div className="ct-cert-detail-icon">
+            <Award size={32} />
+          </div>
+          <div>
+            <h1 className="ct-cert-detail-name">{cert.learnerName || "Certified Learner"}</h1>
+            <p className="ct-cert-detail-subtitle">Certificate of Verified Informal Learning</p>
+          </div>
+        </div>
+
+        {/* Info Grid */}
+        <div className="ct-cert-detail-grid">
+          <div className="ct-cert-detail-item">
+            <span className="ct-cert-detail-label">Certificate Number</span>
+            <span className="ct-cert-detail-value" style={{ fontFamily: "monospace" }}>{cert.certificateNumber || cert.certificateId}</span>
+          </div>
+          <div className="ct-cert-detail-item">
+            <span className="ct-cert-detail-label">Issue Date</span>
+            <span className="ct-cert-detail-value">{fmtDate(cert.createdAtUtc)}</span>
+          </div>
+          <div className="ct-cert-detail-item">
+            <span className="ct-cert-detail-label">Platform</span>
+            <span className="ct-cert-detail-value">{cert.platformName || "CertifyTube"}</span>
+          </div>
+          <div className="ct-cert-detail-item">
+            <span className="ct-cert-detail-label">Verification</span>
+            <span className="ct-cert-detail-value">{cert.platformAttribution || "Verification Layer 1 & 2"}</span>
+          </div>
+        </div>
+
+        {/* Video Section */}
+        <div className="ct-cert-detail-section">
+          <h3 className="ct-cert-detail-section-title">Video Information</h3>
+          <div className="ct-cert-detail-grid">
+            <div className="ct-cert-detail-item ct-cert-detail-item-wide">
+              <span className="ct-cert-detail-label">Video Title</span>
+              <span className="ct-cert-detail-value">{cert.videoTitle || "YouTube Educational Content"}</span>
+            </div>
+            <div className="ct-cert-detail-item">
+              <span className="ct-cert-detail-label">Duration</span>
+              <span className="ct-cert-detail-value" style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                <Clock size={14} /> {cert.videoDuration || "N/A"}
+              </span>
+            </div>
+            {videoUrl && (
+              <div className="ct-cert-detail-item">
+                <span className="ct-cert-detail-label">Source</span>
+                <a href={videoUrl} target="_blank" rel="noreferrer" className="ct-cert-detail-link">
+                  Open on YouTube <ExternalLink size={13} />
+                </a>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Evidence Section */}
+        <div className="ct-cert-detail-section">
+          <h3 className="ct-cert-detail-section-title">Verification Evidence</h3>
+          <div className="ct-cert-evidence-grid">
+            <div className="ct-cert-evidence-card">
+              <div className="ct-cert-evidence-score">{fmtPct(engScore)}</div>
+              <div className="ct-cert-evidence-label">Engagement Score</div>
+              <div className="ct-cert-evidence-threshold">Required: {fmtPct(cert.engagementThreshold ?? 0.85)}</div>
+            </div>
+            <div className="ct-cert-evidence-card">
+              <div className="ct-cert-evidence-score">{fmtPct(quizScore)}</div>
+              <div className="ct-cert-evidence-label">Quiz Score</div>
+              <div className="ct-cert-evidence-threshold">Required: {fmtPct(cert.quizThreshold ?? 0.80)}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* QR Code Section */}
+        {cert.verificationLink && (
+          <div className="ct-cert-qr-section">
+            <div className="ct-cert-qr-box">
+              <QRCodeSVG value={cert.verificationLink} size={140} level="M" />
+            </div>
+            <div className="ct-cert-qr-info">
+              <p className="ct-cert-qr-label">Scan to Verify</p>
+              <p className="ct-cert-qr-link">{cert.verificationLink}</p>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

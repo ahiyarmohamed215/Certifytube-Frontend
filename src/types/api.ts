@@ -117,15 +117,18 @@ export interface CertificateInfo {
   certificateId: string;
   certificateNumber: string;
   sessionId: string;
-  userId: number;
+  userId: number | null;
   scorePercent: number;
   verificationToken: string;
   verificationLink: string;
   createdAtUtc: string;
+  status: 'ACTIVE' | 'REVOKED';
+  valid: boolean;
   learnerName?: string;
   videoId?: string;
   videoTitle?: string;
   videoUrl?: string;
+  videoDuration?: string;
   engagementScore?: number;
   quizScore?: number;
   engagementThreshold?: number;
@@ -164,6 +167,10 @@ export interface AdminCertificate {
   sessionId: string;
   scorePercent: number;
   createdAtUtc: string;
+  status?: 'ACTIVE' | 'REVOKED';
+  valid?: boolean;
+  learnerName?: string;
+  videoTitle?: string;
 }
 
 export interface AdminQuiz {
