@@ -13,6 +13,7 @@ import { VerifyPage } from "../features/verify/VerifyPage";
 import { AdminPage } from "../features/admin/AdminPage";
 import { ProfilePage } from "../features/profile/ProfilePage";
 import { CertifiedPage } from "../features/certified/CertifiedPage";
+import { LandingPage } from "../features/landing/LandingPage";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem("ct_token");
@@ -27,7 +28,7 @@ const wrap = (el: React.ReactNode, protect = false) => {
 
 export const router = createBrowserRouter([
   // Public
-  { path: "/", element: wrap(<SearchPage />) },
+  { path: "/", element: wrap(<LandingPage />) },
   { path: "/login", element: <LoginPage /> },
   { path: "/signup", element: <SignupPage /> },
   { path: "/verify/:token", element: wrap(<VerifyPage />) },

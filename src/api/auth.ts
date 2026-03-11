@@ -1,8 +1,8 @@
 import { http } from "./http";
 import type { AuthResponse, UserInfo } from "../types/api";
 
-export async function signup(email: string, password: string): Promise<AuthResponse> {
-    const res = await http.post<AuthResponse>("/api/auth/signup", { email, password });
+export async function signup(email: string, password: string, name: string): Promise<AuthResponse> {
+    const res = await http.post<AuthResponse>("/api/auth/signup", { email, password, name });
     return res.data;
 }
 

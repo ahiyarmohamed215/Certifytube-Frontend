@@ -34,53 +34,40 @@ export function ProfilePage() {
   });
 
   const summary = useMemo(() => {
-    const activeLatest = latestSessionByVideo(data?.activeVideos || []);
-    const quizPendingLatest = latestSessionByVideo(data?.quizPendingVideos || []);
-    const completedLatest = latestSessionByVideo(data?.completedVideos || []);
-    const certifiedLatest = latestSessionByVideo(data?.certifiedVideos || []);
+    const activeAll = sortByCreatedDesc(data?.activeVideos || []);
+    const completedAll = sortByCreatedDesc(data?.completedVideos || []);
+    const quizPendingAll = sortByCreatedDesc(data?.quizPendingVideos || []);
+    const certifiedAll = sortByCreatedDesc(data?.certifiedVideos || []);
+    const allSessions = [...activeAll, ...completedAll, ...quizPendingAll, ...certifiedAll];
+    const absoluteLatest = latestSessionByVideo(allSessions);
 
-    const activeVideoIdSet = new Set(activeLatest.map((v) => v.videoId));
-    const certifiedIssuedVideoIdSet = new Set(
-      certifiedLatest.filter((v) => Boolean(v.certificateId)).map((v) => v.videoId),
-    );
-    const directQuizPendingVisible = quizPendingLatest.filter(
-      (v) => v.stemEligible && !certifiedIssuedVideoIdSet.has(v.videoId),
-    );
-    const directQuizPendingVideoIdSet = new Set(directQuizPendingVisible.map((v) => v.videoId));
-    const promotedQuizPending = completedLatest.filter(
-      (v) =>
-        v.stemEligible
-        && v.engagementScore != null
-        && v.engagementScore >= ENGAGEMENT_THRESHOLD
-        && !certifiedIssuedVideoIdSet.has(v.videoId)
-        && !directQuizPendingVideoIdSet.has(v.videoId),
-    );
-    const promotedFromCertifiedNoCertificate = certifiedLatest.filter(
-      (v) =>
-        v.stemEligible
-        && !v.certificateId
-        && !directQuizPendingVideoIdSet.has(v.videoId),
-    );
-    const quizPendingVideoIdSet = new Set([
-      ...[...directQuizPendingVideoIdSet],
-      ...promotedQuizPending.map((v) => v.videoId),
-      ...promotedFromCertifiedNoCertificate.map((v) => v.videoId),
-    ]);
-    const activeVisible = activeLatest.filter(
-      (v) =>
-        v.stemEligible
-        && !quizPendingVideoIdSet.has(v.videoId)
-        && !certifiedIssuedVideoIdSet.has(v.videoId),
-    );
-    const completedVisible = completedLatest.filter(
-      (v) => !activeVideoIdSet.has(v.videoId) && !quizPendingVideoIdSet.has(v.videoId) && !certifiedIssuedVideoIdSet.has(v.videoId),
+    // Match My Learnings status logic (latest session per video + same category rules).
+    const quizPendingVideos = absoluteLatest.filter((v) => {
+      if (!v.stemEligible) return false;
+      if (v.status === "QUIZ_PENDING") return true;
+      if (v.status === "COMPLETED" && v.engagementScore != null && v.engagementScore >= ENGAGEMENT_THRESHOLD) return true;
+      if (v.status === "CERTIFIED" && !v.certificateId) return true;
+      return false;
+    });
+
+    const activeStemVideos = absoluteLatest.filter((v) => v.stemEligible && v.status === "ACTIVE");
+    const activeNonStemVideos = absoluteLatest.filter((v) => !v.stemEligible && v.status === "ACTIVE");
+
+    const completedStemVideos = absoluteLatest.filter((v) => {
+      if (!v.stemEligible) return false;
+      if (v.status === "COMPLETED" && (v.engagementScore == null || v.engagementScore < ENGAGEMENT_THRESHOLD)) return true;
+      return false;
+    });
+    const completedNonStemVideos = absoluteLatest.filter((v) => !v.stemEligible && v.status === "COMPLETED");
+
+    const certifiedVideos = absoluteLatest.filter(
+      (v) => v.stemEligible && v.status === "CERTIFIED" && Boolean(v.certificateId),
     );
 
-    // Keep counts aligned with My Learnings status cards and visibility rules.
-    const active = activeVisible.length;
-    const completed = completedVisible.length;
-    const quizPending = quizPendingVideoIdSet.size;
-    const certified = certifiedLatest.filter((v) => v.stemEligible && Boolean(v.certificateId)).length;
+    const active = activeStemVideos.length + activeNonStemVideos.length;
+    const completed = completedStemVideos.length + completedNonStemVideos.length;
+    const quizPending = quizPendingVideos.length;
+    const certified = certifiedVideos.length;
     const total = active + completed + quizPending + certified;
     const completionRate = total > 0 ? Math.round(((completed + quizPending + certified) / total) * 100) : 0;
     const certificationRate = total > 0 ? Math.round((certified / total) * 100) : 0;

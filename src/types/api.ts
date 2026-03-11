@@ -7,6 +7,7 @@ export interface AuthResponse {
   role: string;
   token: string;
   tokenType: string;
+  message?: string;
 }
 
 export interface UserInfo {
@@ -135,6 +136,7 @@ export interface CertificateInfo {
   quizThreshold?: number;
   platformName?: string;
   platformAttribution?: string;
+  sealUrl?: string;
 }
 
 // ---- Admin ----

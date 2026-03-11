@@ -50,8 +50,8 @@ export function AnalyzePage() {
 
   return (
     <div className="ct-slide-up" style={{ maxWidth: 760, margin: "0 auto" }}>
-      <button className="ct-btn ct-btn-ghost ct-btn-sm" onClick={() => nav("/my-learnings")} style={{ marginBottom: 16 }}>
-        <ArrowLeft size={14} /> Back to My Learnings
+      <button className="ct-btn ct-btn-ghost ct-btn-sm" onClick={() => nav(-1)} style={{ marginBottom: 16 }}>
+        <ArrowLeft size={14} /> Go Back
       </button>
 
       <h1 className="ct-page-title">Engagement Analysis</h1>
@@ -120,7 +120,7 @@ export function AnalyzePage() {
                   if (locState.videoId) {
                     nav(`/watch/${locState.videoId}`, { state: { videoTitle: locState.videoTitle } });
                   } else {
-                    nav("/my-learnings");
+                    nav(-1);
                   }
                 }}
                 id="watch-again-btn"

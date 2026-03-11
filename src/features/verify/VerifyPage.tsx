@@ -17,7 +17,6 @@ function fmtDate(iso: string): string {
 
 export function VerifyPage() {
   const { token } = useParams();
-
   const [cert, setCert] = useState<CertificateInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -25,149 +24,133 @@ export function VerifyPage() {
   useEffect(() => {
     if (!token) return;
     (async () => {
-      try {
-        const c = await verifyCertificate(token);
-        setCert(c);
-      } catch (e: any) {
-        setError(e?.message || "Invalid certificate link");
-      } finally {
-        setLoading(false);
-      }
+      try { setCert(await verifyCertificate(token)); }
+      catch (e: any) { setError(e?.message || "Invalid certificate link"); }
+      finally { setLoading(false); }
     })();
   }, [token]);
 
-  /* --- Loading --- */
   if (loading) {
-    return (
-      <div className="ct-loading" style={{ minHeight: 400 }}>
-        <div className="ct-spinner" />
-        <span>Verifying certificate...</span>
-      </div>
-    );
+    return (<div className="ct-loading" style={{ minHeight: 400 }}><div className="ct-spinner" /><span>Verifying certificate...</span></div>);
   }
 
-  /* --- Certificate Not Found (400 error) --- */
+  /* Not Found */
   if (error || !cert) {
     return (
-      <div className="ct-slide-up" style={{ maxWidth: 560, margin: "60px auto", textAlign: "center" }}>
-        <div className="ct-card" style={{ padding: "40px 24px" }}>
-          <ShieldAlert size={52} style={{ color: "var(--ct-error)", marginBottom: 16 }} />
-          <h1 style={{ fontSize: 24, fontWeight: 800, marginBottom: 8 }}>Certificate Not Found</h1>
-          <p style={{ color: "var(--ct-text-secondary)", fontSize: 14, lineHeight: 1.6, maxWidth: 360, margin: "0 auto" }}>
-            {error || "The verification link is invalid or the certificate does not exist. Please check the link and try again."}
+      <div className="ct-slide-up" style={{ maxWidth: 520, margin: "80px auto", textAlign: "center" }}>
+        <div className="ct-card" style={{ padding: "48px 32px" }}>
+          <div style={{ width: 64, height: 64, borderRadius: "50%", background: "rgba(239,68,68,0.08)", display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 20 }}>
+            <ShieldAlert size={32} style={{ color: "var(--ct-error)" }} />
+          </div>
+          <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 8 }}>Certificate Not Found</h1>
+          <p style={{ color: "var(--ct-text-secondary)", fontSize: 14, lineHeight: 1.65, maxWidth: 340, margin: "0 auto" }}>
+            {error || "The verification link is invalid or the certificate does not exist."}
           </p>
         </div>
       </div>
     );
   }
 
-  /* --- Determine validity --- */
   const isValid = cert.status !== "REVOKED";
-  const videoUrl = cert.videoUrl || (cert.videoId ? `https://youtube.com/watch?v=${cert.videoId}` : "");
-
-  // Score fallbacks: quizScore may be 0 if not populated, use scorePercent instead
+  const videoUrl = cert.videoUrl || (cert.videoId ? `https://www.youtube.com/watch?v=${cert.videoId}` : "");
   const engScore = cert.engagementScore && cert.engagementScore > 0 ? cert.engagementScore : null;
   const quizScore = cert.quizScore && cert.quizScore > 0 ? cert.quizScore : (cert.scorePercent ? cert.scorePercent / 100 : null);
 
   return (
-    <div className="ct-slide-up" style={{ maxWidth: 760, margin: "34px auto" }}>
-      {/* Status Banner */}
-      <div className={`ct-cert-status-banner ${isValid ? "ct-cert-status-valid" : "ct-cert-status-revoked"}`}>
-        {isValid ? <CheckCircle size={24} /> : <XCircle size={24} />}
-        <div>
-          <strong>{isValid ? "✅ Valid Certificate" : "❌ Revoked Certificate"}</strong>
-          <p>
-            {isValid
-              ? "This certificate is authentic and verified by CertifyTube."
-              : "This certificate has been revoked and is no longer valid."}
+    <div className="ct-slide-up" style={{ maxWidth: 680, margin: "40px auto" }}>
+      {/* Status banner */}
+      <div className={`ct-vbanner ${isValid ? "ct-vbanner-ok" : "ct-vbanner-err"}`}>
+        {isValid ? <CheckCircle size={20} /> : <XCircle size={20} />}
+        <div style={{ flex: 1 }}>
+          <strong style={{ fontSize: 15 }}>{isValid ? "Certificate Verified" : "Certificate Revoked"}</strong>
+          <p style={{ margin: "2px 0 0", fontSize: 12.5, opacity: 0.8 }}>
+            {isValid ? "This certificate is authentic and issued by CertifyTube." : "This certificate has been revoked and is no longer valid."}
           </p>
         </div>
-        <span className={`ct-badge ${isValid ? "ct-badge-certified" : "ct-badge-revoked"}`}>
-          {cert.status || "ACTIVE"}
-        </span>
+        <span className={`ct-badge ${isValid ? "ct-badge-certified" : "ct-badge-revoked"}`}>{cert.status || "ACTIVE"}</span>
       </div>
 
-      {/* Certificate Details Card */}
-      <div className="ct-card ct-cert-detail-card">
-        {/* Learner Header */}
-        <div className="ct-cert-detail-header">
-          <div className="ct-cert-detail-icon">
-            <Award size={28} />
-          </div>
+      {/* Main card */}
+      <div className="ct-card ct-verify-card">
+        {/* Header */}
+        <div className="ct-verify-header">
+          <div className="ct-verify-icon"><Award size={26} /></div>
           <div>
-            <h2 className="ct-cert-detail-name" style={{ fontSize: 22 }}>{cert.learnerName || "Learner"}</h2>
-            <p className="ct-cert-detail-subtitle">Certificate of Verified Informal Learning</p>
+            <h2 className="ct-verify-name">{cert.learnerName || "Learner"}</h2>
+            <p className="ct-verify-sub">Certificate of Verified Informal Learning</p>
           </div>
         </div>
 
-        {/* Info Grid */}
-        <div className="ct-cert-detail-grid">
-          <div className="ct-cert-detail-item">
-            <span className="ct-cert-detail-label">Certificate Number</span>
-            <span className="ct-cert-detail-value" style={{ fontFamily: "monospace" }}>{cert.certificateNumber || cert.certificateId}</span>
+        {/* Info rows */}
+        <div className="ct-verify-grid">
+          <div className="ct-verify-row">
+            <span className="ct-verify-lbl">Certificate No.</span>
+            <span className="ct-verify-val" style={{ fontFamily: "monospace" }}>{cert.certificateNumber || cert.certificateId}</span>
           </div>
-          <div className="ct-cert-detail-item">
-            <span className="ct-cert-detail-label">Issue Date</span>
-            <span className="ct-cert-detail-value">{fmtDate(cert.createdAtUtc)}</span>
+          <div className="ct-verify-row">
+            <span className="ct-verify-lbl">Issue Date</span>
+            <span className="ct-verify-val">{fmtDate(cert.createdAtUtc)}</span>
           </div>
-          <div className="ct-cert-detail-item">
-            <span className="ct-cert-detail-label">Platform</span>
-            <span className="ct-cert-detail-value">{cert.platformName || "CertifyTube"}</span>
+          <div className="ct-verify-row">
+            <span className="ct-verify-lbl">Platform</span>
+            <span className="ct-verify-val">{cert.platformName || "CertifyTube"}</span>
           </div>
-          <div className="ct-cert-detail-item">
-            <span className="ct-cert-detail-label">Status</span>
+          <div className="ct-verify-row">
+            <span className="ct-verify-lbl">Status</span>
             <span className={`ct-badge ${isValid ? "ct-badge-certified" : "ct-badge-revoked"}`}>{cert.status || "ACTIVE"}</span>
           </div>
         </div>
 
-        {/* Video Section */}
-        <div className="ct-cert-detail-section">
-          <h3 className="ct-cert-detail-section-title">Video Information</h3>
-          <div className="ct-cert-detail-grid">
-            <div className="ct-cert-detail-item ct-cert-detail-item-wide">
-              <span className="ct-cert-detail-label">Video Title</span>
-              <span className="ct-cert-detail-value">{cert.videoTitle || "YouTube Educational Content"}</span>
+        {/* Video */}
+        <div className="ct-verify-section">
+          <h3 className="ct-verify-section-title">Video Information</h3>
+          <div className="ct-verify-grid">
+            <div className="ct-verify-row ct-verify-row-wide">
+              <span className="ct-verify-lbl">Title</span>
+              <span className="ct-verify-val">{cert.videoTitle || "YouTube Educational Content"}</span>
             </div>
-            <div className="ct-cert-detail-item">
-              <span className="ct-cert-detail-label">Duration</span>
-              <span className="ct-cert-detail-value" style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-                <Clock size={14} /> {cert.videoDuration || "N/A"}
-              </span>
-            </div>
+            {cert.videoDuration && (
+              <div className="ct-verify-row">
+                <span className="ct-verify-lbl">Duration</span>
+                <span className="ct-verify-val" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  <Clock size={13} /> {cert.videoDuration}
+                </span>
+              </div>
+            )}
             {videoUrl && (
-              <div className="ct-cert-detail-item">
-                <span className="ct-cert-detail-label">YouTube Source</span>
-                <a href={videoUrl} target="_blank" rel="noreferrer" className="ct-cert-detail-link">
-                  Watch on YouTube <ExternalLink size={13} />
+              <div className="ct-verify-row">
+                <span className="ct-verify-lbl">Source</span>
+                <a href={videoUrl} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 4, fontWeight: 600, fontSize: 13, color: "var(--ct-primary)" }}>
+                  YouTube <ExternalLink size={12} />
                 </a>
               </div>
             )}
           </div>
         </div>
 
-        {/* Evidence Section */}
-        <div className="ct-cert-detail-section">
-          <h3 className="ct-cert-detail-section-title">Verification Evidence</h3>
-          <div className="ct-cert-evidence-grid">
-            <div className="ct-cert-evidence-card">
-              <div className="ct-cert-evidence-score">{fmtPct(engScore)}</div>
-              <div className="ct-cert-evidence-label">Engagement Score</div>
-              <div className="ct-cert-evidence-threshold">Required: {fmtPct(cert.engagementThreshold ?? 0.85)}</div>
+        {/* Evidence */}
+        <div className="ct-verify-section">
+          <h3 className="ct-verify-section-title">Verification Evidence</h3>
+          <div className="ct-verify-scores">
+            <div className="ct-verify-score-card">
+              <div className="ct-verify-score-num">{fmtPct(engScore)}</div>
+              <div className="ct-verify-score-label">Engagement</div>
+              <div className="ct-verify-score-req">Required: {fmtPct(cert.engagementThreshold ?? 0.85)}</div>
             </div>
-            <div className="ct-cert-evidence-card">
-              <div className="ct-cert-evidence-score">{fmtPct(quizScore)}</div>
-              <div className="ct-cert-evidence-label">Quiz Score</div>
-              <div className="ct-cert-evidence-threshold">Required: {fmtPct(cert.quizThreshold ?? 0.80)}</div>
+            <div className="ct-verify-score-card">
+              <div className="ct-verify-score-num">{fmtPct(quizScore)}</div>
+              <div className="ct-verify-score-label">Quiz Score</div>
+              <div className="ct-verify-score-req">Required: {fmtPct(cert.quizThreshold ?? 0.80)}</div>
             </div>
           </div>
         </div>
       </div>
 
       {/* Footer */}
-      <div style={{ marginTop: 16, textAlign: "center", color: "var(--ct-text-muted)", fontSize: 13 }}>
-        <Award size={16} style={{ verticalAlign: "text-bottom", marginRight: 5 }} />
+      <p style={{ textAlign: "center", color: "var(--ct-text-muted)", fontSize: 12.5, marginTop: 20 }}>
+        <Award size={14} style={{ verticalAlign: "text-bottom", marginRight: 4 }} />
         CertifyTube — Informal Learning Verification Platform
-      </div>
+      </p>
     </div>
   );
 }

@@ -31,8 +31,8 @@ export function AdminPage() {
             <div className="ct-empty" style={{ minHeight: 300 }}>
                 <div className="ct-empty-icon">🔒</div>
                 <p>Access denied. Admin role required.</p>
-                <button className="ct-btn ct-btn-primary" onClick={() => nav("/my-learnings")} style={{ marginTop: 16 }}>
-                    Go to My Learnings
+                <button className="ct-btn ct-btn-primary" onClick={() => nav(-1)} style={{ marginTop: 16 }}>
+                    Go Back
                 </button>
             </div>
         );

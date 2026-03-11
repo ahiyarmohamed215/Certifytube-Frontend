@@ -13,34 +13,25 @@ function formatDuration(sec: number) {
 
 function CertifiedRow({ video, onOpen }: { video: DashboardVideo; onOpen: () => void }) {
   return (
-    <div className="ct-card ct-card-hover" style={{ display: "flex", gap: 16, padding: 16, marginBottom: 12 }}>
+    <div className="ct-card ct-card-hover ct-certified-row">
       <img
         src={video.thumbnailUrl || `https://img.youtube.com/vi/${video.videoId}/mqdefault.jpg`}
         alt={video.videoTitle}
-        style={{ width: 160, height: 90, borderRadius: "var(--ct-radius-sm)", objectFit: "cover", flexShrink: 0 }}
+        className="ct-certified-thumb"
       />
 
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+      <div className="ct-certified-content">
+        <div className="ct-certified-top">
           <span className="ct-badge ct-badge-certified">Certified</span>
           <span className="ct-badge ct-badge-stem">STEM</span>
         </div>
 
-        <div
-          style={{
-            fontWeight: 650,
-            fontSize: 15,
-            marginBottom: 4,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-        >
+        <div className="ct-certified-title">
           {video.videoTitle}
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 12, color: "var(--ct-text-muted)" }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        <div className="ct-certified-meta">
+          <span className="ct-certified-meta-item">
             <Clock size={12} />
             {video.videoDurationSec ? formatDuration(video.videoDurationSec) : "-"}
           </span>
@@ -49,7 +40,7 @@ function CertifiedRow({ video, onOpen }: { video: DashboardVideo; onOpen: () => 
         </div>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
+      <div className="ct-certified-action">
         <button className="ct-btn ct-btn-primary ct-btn-sm" onClick={onOpen} disabled={!video.certificateId}>
           <Eye size={14} />
           View Certificate

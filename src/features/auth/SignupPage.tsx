@@ -6,26 +6,39 @@ import { signup as apiSignup, getMe } from "../../api/auth";
 import { useAuthStore } from "../../store/useAuthStore";
 
 export function SignupPage() {
+    const [name, setName] = useState("");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
-    const [confirm, setConfirm] = useState("");
     const [loading, setLoading] = useState(false);
     const { setAuth, setUser } = useAuthStore();
     const navigate = useNavigate();
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!email.trim() || !password.trim()) {
+        const trimmedName = name.trim();
+        const trimmedEmail = email.trim().toLowerCase();
+        const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+        if (!trimmedName || !trimmedEmail || !password.trim()) {
             toast.error("All fields are required");
             return;
         }
-        if (password !== confirm) {
-            toast.error("Passwords do not match");
+        if (trimmedName.length < 2 || trimmedName.length > 255) {
+            toast.error("Name must be between 2 and 255 characters");
             return;
         }
+        if (!emailPattern.test(trimmedEmail)) {
+            toast.error("Enter a valid email address");
+            return;
+        }
+        if (password.length < 8 || password.length > 128) {
+            toast.error("Password must be between 8 and 128 characters");
+            return;
+        }
+
         setLoading(true);
         try {
-            const res = await apiSignup(email, password);
+            const res = await apiSignup(trimmedEmail, password, trimmedName);
             setAuth(res.token, { userId: res.userId, email: res.email, role: res.role });
             try {
                 const me = await getMe();
@@ -33,7 +46,7 @@ export function SignupPage() {
             } catch {
                 // fallback to auth response payload already stored above
             }
-            toast.success("Account created!");
+            toast.success(res.message || "Signup successful");
             navigate("/home");
         } catch (err: any) {
             toast.error(err.message || "Signup failed");
@@ -57,6 +70,20 @@ export function SignupPage() {
 
                     <form onSubmit={handleSubmit}>
                         <div className="ct-form-group">
+                            <label className="ct-form-label">Full Name</label>
+                            <input
+                                className="ct-input"
+                                type="text"
+                                placeholder="John Doe"
+                                value={name}
+                                onChange={(e) => setName(e.target.value)}
+                                autoFocus
+                                id="signup-name"
+                                maxLength={255}
+                            />
+                        </div>
+
+                        <div className="ct-form-group">
                             <label className="ct-form-label">Email</label>
                             <input
                                 className="ct-input"
@@ -64,7 +91,6 @@ export function SignupPage() {
                                 placeholder="you@example.com"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
-                                autoFocus
                                 id="signup-email"
                             />
                         </div>
@@ -74,22 +100,10 @@ export function SignupPage() {
                             <input
                                 className="ct-input"
                                 type="password"
-                                placeholder="••••••••"
+                                placeholder="********"
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
                                 id="signup-password"
-                            />
-                        </div>
-
-                        <div className="ct-form-group">
-                            <label className="ct-form-label">Confirm Password</label>
-                            <input
-                                className="ct-input"
-                                type="password"
-                                placeholder="••••••••"
-                                value={confirm}
-                                onChange={(e) => setConfirm(e.target.value)}
-                                id="signup-confirm"
                             />
                         </div>
 
@@ -101,7 +115,7 @@ export function SignupPage() {
                             id="signup-submit"
                         >
                             <UserPlus size={18} />
-                            {loading ? "Creating account…" : "Create Account"}
+                            {loading ? "Creating account..." : "Create Account"}
                         </button>
                     </form>
 

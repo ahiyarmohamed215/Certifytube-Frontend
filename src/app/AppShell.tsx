@@ -1,9 +1,16 @@
 import type { PropsWithChildren } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Home, BookOpen, Award, User, Shield, LogOut, LogIn, UserPlus } from "lucide-react";
+import { type LucideIcon, Home, BookOpen, Award, User, Shield, LogOut, LogIn, UserPlus } from "lucide-react";
 import { useAuthStore } from "../store/useAuthStore";
 import { logout as apiLogout } from "../api/auth";
 import toast from "react-hot-toast";
+
+type NavItem = {
+  to: string;
+  label: string;
+  icon: LucideIcon;
+  active: boolean;
+};
 
 export function AppShell({ children }: PropsWithChildren) {
   const location = useLocation();
@@ -19,6 +26,9 @@ export function AppShell({ children }: PropsWithChildren) {
   const isCertifiedActive = location.pathname === "/certified"
     || location.pathname.startsWith("/certificate/");
   const isProfileActive = location.pathname === "/profile";
+  const isAdminActive = location.pathname === "/admin";
+  const isLoginActive = location.pathname === "/login";
+  const isSignupActive = location.pathname === "/signup";
 
   const handleLogout = async () => {
     try {
@@ -31,61 +41,64 @@ export function AppShell({ children }: PropsWithChildren) {
     navigate("/login");
   };
 
+  const primaryItems: NavItem[] = [
+    { to: "/home", label: "Home", icon: Home, active: isHomeActive },
+    { to: "/my-learnings", label: "Learnings", icon: BookOpen, active: isLearnActive },
+    { to: "/certified", label: "Certified", icon: Award, active: isCertifiedActive },
+    { to: "/profile", label: "Profile", icon: User, active: isProfileActive },
+  ];
+
+  const mobileItems: NavItem[] = isLoggedIn
+    ? [
+      ...primaryItems,
+      ...(user?.role === "ADMIN"
+        ? [{ to: "/admin", label: "Admin", icon: Shield, active: isAdminActive }]
+        : []),
+    ]
+    : [
+      { to: "/", label: "Home", icon: Home, active: isHomeActive },
+      { to: "/login", label: "Login", icon: LogIn, active: isLoginActive },
+      { to: "/signup", label: "Sign Up", icon: UserPlus, active: isSignupActive },
+    ];
+  const footerExploreLinks = isLoggedIn
+    ? [
+      { to: "/home", label: "Home" },
+      { to: "/my-learnings", label: "My Learnings" },
+      { to: "/certified", label: "Certified" },
+      { to: "/profile", label: "Profile" },
+    ]
+    : [
+      { to: "/", label: "Home" },
+      { to: "/login", label: "Login" },
+      { to: "/signup", label: "Sign Up" },
+    ];
+
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+    <div className={`ct-shell ${mobileItems.length > 0 ? "ct-shell-with-tabbar" : ""}`}>
       <header className="ct-header">
         <div className="ct-header-inner">
           <Link to={isLoggedIn ? "/home" : "/"} className="ct-logo">
             CertifyTube
           </Link>
 
-          <nav className="ct-nav">
-            {isLoggedIn && (
+          <nav className="ct-nav ct-nav-desktop">
+            {isLoggedIn && primaryItems.map(({ to, label, icon: Icon, active }) => (
               <Link
-                to="/home"
-                className={`ct-nav-link ${isHomeActive ? "active" : ""}`}
+                key={to}
+                to={to}
+                className={`ct-nav-link ${active ? "active" : ""}`}
               >
-                <Home size={15} style={{ marginRight: 4, verticalAlign: "middle" }} />
-                Home
+                <Icon size={15} className="ct-nav-link-icon" />
+                {label}
               </Link>
-            )}
-
-            {isLoggedIn && (
-              <Link
-                to="/my-learnings"
-                className={`ct-nav-link ${isLearnActive ? "active" : ""}`}
-              >
-                <BookOpen size={15} style={{ marginRight: 4, verticalAlign: "middle" }} />
-                My Learnings
-              </Link>
-            )}
-
-            {isLoggedIn && (
-              <Link
-                to="/certified"
-                className={`ct-nav-link ${isCertifiedActive ? "active" : ""}`}
-              >
-                <Award size={15} style={{ marginRight: 4, verticalAlign: "middle" }} />
-                Certified
-              </Link>
-            )}
-
-            {isLoggedIn && (
-              <Link
-                to="/profile"
-                className={`ct-nav-link ${isProfileActive ? "active" : ""}`}
-              >
-                <User size={15} style={{ marginRight: 4, verticalAlign: "middle" }} />
-                Profile
-              </Link>
-            )}
+            ))}
 
             {isLoggedIn && user?.role === "ADMIN" && (
               <Link
                 to="/admin"
-                className={`ct-nav-link ${location.pathname === "/admin" ? "active" : ""}`}
+                className={`ct-nav-link ${isAdminActive ? "active" : ""}`}
               >
-                <Shield size={15} style={{ marginRight: 4, verticalAlign: "middle" }} />
+                <Shield size={15} className="ct-nav-link-icon" />
                 Admin
               </Link>
             )}
@@ -103,7 +116,7 @@ export function AppShell({ children }: PropsWithChildren) {
             ) : (
               <div className="ct-nav-user">
                 <Link to="/" className={`ct-nav-link ${isHomeActive ? "active" : ""}`}>
-                  <Home size={15} style={{ marginRight: 4, verticalAlign: "middle" }} />
+                  <Home size={15} className="ct-nav-link-icon" />
                   Home
                 </Link>
                 <Link to="/login" className="ct-btn ct-btn-ghost ct-btn-sm">
@@ -117,6 +130,17 @@ export function AppShell({ children }: PropsWithChildren) {
               </div>
             )}
           </nav>
+
+          {isLoggedIn && (
+            <button
+              className="ct-btn ct-btn-ghost ct-btn-sm ct-mobile-logout"
+              onClick={handleLogout}
+              aria-label="Log out"
+              title="Log out"
+            >
+              <LogOut size={16} />
+            </button>
+          )}
         </div>
       </header>
 
@@ -128,16 +152,64 @@ export function AppShell({ children }: PropsWithChildren) {
 
       <footer className="ct-footer">
         <div className="ct-footer-inner">
-          <span className="ct-footer-text">
-            © {new Date().getFullYear()} CertifyTube — Watch. Learn. Get Certified.
-          </span>
-          <div className="ct-footer-links">
-            <Link to="/">Home</Link>
-            <Link to="/login">Login</Link>
-            <Link to="/signup">Sign Up</Link>
+          <div className="ct-footer-top">
+            <div className="ct-footer-brand">
+              <Link to={isLoggedIn ? "/home" : "/"} className="ct-footer-logo">
+                CertifyTube
+              </Link>
+              <p className="ct-footer-description">
+                A verification-first learning platform for tracking progress, proving knowledge,
+                and sharing trusted certificates.
+              </p>
+            </div>
+
+            <div className="ct-footer-columns">
+              <div className="ct-footer-column">
+                <h4>Explore</h4>
+                <div className="ct-footer-links">
+                  {footerExploreLinks.map((link) => (
+                    <Link key={link.to} to={link.to}>
+                      {link.label}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+
+              <div className="ct-footer-column">
+                <h4>Platform</h4>
+                <div className="ct-footer-points">
+                  <span>Engagement Analytics</span>
+                  <span>Quiz Qualification</span>
+                  <span>Certificate Verification</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="ct-footer-bottom">
+            <span className="ct-footer-text">
+              Copyright {new Date().getFullYear()} CertifyTube. All rights reserved.
+            </span>
+            <span className="ct-footer-meta">Watch. Learn. Get Certified.</span>
           </div>
         </div>
       </footer>
+
+      {mobileItems.length > 0 && (
+        <nav className="ct-mobile-tabbar" aria-label="Mobile app navigation">
+          {mobileItems.map(({ to, label, icon: Icon, active }) => (
+            <Link
+              key={to}
+              to={to}
+              className={`ct-mobile-tab ${active ? "active" : ""}`}
+              aria-current={active ? "page" : undefined}
+            >
+              <Icon size={18} />
+              <span>{label}</span>
+            </Link>
+          ))}
+        </nav>
+      )}
     </div>
   );
 }

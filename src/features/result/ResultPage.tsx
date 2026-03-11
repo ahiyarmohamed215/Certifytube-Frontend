@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { Award, CheckCircle, Download, Home, Share2, XCircle } from "lucide-react";
+import { ArrowLeft, Award, CheckCircle, Download, Share2, XCircle } from "lucide-react";
 import toast from "react-hot-toast";
 
 import { downloadCertificatePdf } from "../../api/certificate";
@@ -495,8 +495,8 @@ export function ResultPage() {
           </button>
         )}
 
-        <button className="ct-btn ct-btn-ghost" onClick={() => nav("/my-learnings")}>
-          <Home size={16} /> My Learnings
+        <button className="ct-btn ct-btn-ghost" onClick={() => nav(-1)}>
+          <ArrowLeft size={16} /> Go Back
         </button>
       </div>
     </div>

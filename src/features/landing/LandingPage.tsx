@@ -1,0 +1,122 @@
+import { useNavigate } from "react-router-dom";
+import { ArrowRight, Brain, Award, ShieldCheck, Sparkles, PlayCircle, ClipboardCheck, BadgeCheck } from "lucide-react";
+import { useAuthStore } from "../../store/useAuthStore";
+
+const steps = [
+  {
+    icon: PlayCircle,
+    title: "Watch and Track",
+    desc: "Learn from YouTube videos while CertifyTube records real engagement and progress.",
+  },
+  {
+    icon: Brain,
+    title: "Analyze and Qualify",
+    desc: "Pass engagement rules, then unlock quiz eligibility for true learning validation.",
+  },
+  {
+    icon: Award,
+    title: "Get Certified",
+    desc: "Pass the quiz and receive a verifiable certificate with secure token-based validation.",
+  },
+];
+
+const highlights = [
+  {
+    icon: ShieldCheck,
+    title: "Verification-First",
+    desc: "Every certificate has a public verification link and QR flow for trust.",
+  },
+  {
+    icon: ClipboardCheck,
+    title: "Dual Validation",
+    desc: "Engagement score plus quiz performance ensures quality, not just watch time.",
+  },
+  {
+    icon: BadgeCheck,
+    title: "Learner Portfolio",
+    desc: "Build a clean history of active sessions, completed progress, and certified outcomes.",
+  },
+];
+
+export function LandingPage() {
+  const navigate = useNavigate();
+  const { isLoggedIn } = useAuthStore();
+
+  const handlePrimary = () => {
+    navigate(isLoggedIn ? "/home" : "/signup");
+  };
+
+  const handleSecondary = () => {
+    navigate(isLoggedIn ? "/home" : "/login");
+  };
+
+  return (
+    <div className="ct-landing ct-slide-up">
+      <section className="ct-landing-hero">
+        <div className="ct-landing-orb ct-landing-orb-one" />
+        <div className="ct-landing-orb ct-landing-orb-two" />
+
+        <span className="ct-landing-kicker">
+          <Sparkles size={14} />
+          Mobile-First Learning Certification
+        </span>
+
+        <h1 className="ct-landing-title">
+          Turn YouTube Learning Into
+          <span> Verifiable Certificates</span>
+        </h1>
+
+        <p className="ct-landing-subtitle">
+          CertifyTube helps learners prove skill growth with engagement analysis, quiz validation,
+          and shareable certificates that can be verified instantly.
+        </p>
+
+        <div className="ct-landing-actions">
+          <button className="ct-btn ct-btn-primary ct-btn-lg" onClick={handlePrimary}>
+            {isLoggedIn ? "Go to Home" : "Get Started"}
+            <ArrowRight size={16} />
+          </button>
+          <button className="ct-btn ct-btn-secondary ct-btn-lg" onClick={handleSecondary}>
+            {isLoggedIn ? "Open Dashboard" : "Login"}
+          </button>
+        </div>
+
+        <div className="ct-landing-chips">
+          <span className="ct-cert-chip">Engagement + Quiz validation</span>
+          <span className="ct-cert-chip chip-light">Certificate verification token</span>
+          <span className="ct-cert-chip chip-light">Built for phone users</span>
+        </div>
+      </section>
+
+      <section className="ct-landing-steps">
+        {steps.map(({ icon: Icon, title, desc }) => (
+          <article key={title} className="ct-landing-step-card">
+            <div className="ct-landing-step-icon">
+              <Icon size={18} />
+            </div>
+            <h3>{title}</h3>
+            <p>{desc}</p>
+          </article>
+        ))}
+      </section>
+
+      <section className="ct-landing-features">
+        <div className="ct-landing-features-head">
+          <h2>Built for serious self-learning, not just video watching</h2>
+          <p>
+            Track learning continuity, qualify through objective rules, and present proof with a professional certificate.
+          </p>
+        </div>
+        <div className="ct-landing-feature-grid">
+          {highlights.map(({ icon: Icon, title, desc }) => (
+            <article key={title} className="ct-landing-feature-card">
+              <Icon size={20} />
+              <h3>{title}</h3>
+              <p>{desc}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}

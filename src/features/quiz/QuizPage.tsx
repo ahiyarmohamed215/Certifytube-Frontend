@@ -277,15 +277,15 @@ export function QuizPage() {
       nav(`/watch/${locationState.videoId}`, { state: { videoTitle: locationState.videoTitle } });
       return;
     }
-    nav("/my-learnings");
+    nav(-1);
   };
 
   if (!quizId) return <div className="ct-empty">Missing quiz context</div>;
 
   return (
     <div className="ct-slide-up" style={{ maxWidth: 800, margin: "0 auto" }}>
-      <button className="ct-btn ct-btn-ghost ct-btn-sm" onClick={() => nav("/my-learnings")} style={{ marginBottom: 16 }}>
-        <ArrowLeft size={14} /> My Learnings
+      <button className="ct-btn ct-btn-ghost ct-btn-sm" onClick={() => nav(-1)} style={{ marginBottom: 16 }}>
+        <ArrowLeft size={14} /> Go Back
       </button>
 
       <h1 className="ct-page-title">
@@ -375,12 +375,13 @@ export function QuizPage() {
                 <span style={{ color: "var(--ct-accent-light)" }}>Q{clampedQuestionIndex + 1}.</span> {currentQuestion.questionText}
               </div>
 
-              {currentQuestionType === "mcq" && Array.isArray(currentQuestion.options) && currentQuestion.options.length > 0 && (
-                <div>
-                  {currentQuestion.options.map((opt) => (
+              {Array.isArray(currentQuestion.options) && currentQuestion.options.length > 0 ? (
+                <div style={(currentQuestion.options || []).length <= 2 ? { display: "flex", gap: 12 } : {}}>
+                  {(currentQuestion.options || []).map((opt) => (
                     <label
                       key={opt}
                       className={`ct-quiz-option ${answers[currentQuestionKey] === opt ? "selected" : ""}`}
+                      style={(currentQuestion.options || []).length <= 2 ? { flex: 1, justifyContent: "center" } : {}}
                     >
                       <input
                         type="radio"
@@ -389,13 +390,11 @@ export function QuizPage() {
                         checked={answers[currentQuestionKey] === opt}
                         onChange={() => setAnswer(currentQuestionKey, opt)}
                       />
-                      <span>{opt}</span>
+                      <span style={{ textTransform: currentQuestionType === "true_false" ? "capitalize" : "none" }}>{opt}</span>
                     </label>
                   ))}
                 </div>
-              )}
-
-              {currentQuestionType === "true_false" && (
+              ) : currentQuestionType === "true_false" ? (
                 <div style={{ display: "flex", gap: 12 }}>
                   {["true", "false"].map((opt) => (
                     <label
@@ -414,9 +413,7 @@ export function QuizPage() {
                     </label>
                   ))}
                 </div>
-              )}
-
-              {currentQuestionType === "fill_blank" && (
+              ) : currentQuestionType === "fill_blank" ? (
                 <div style={{ marginTop: 8 }}>
                   <div style={{ fontSize: 12, color: "var(--ct-text-muted)", marginBottom: 8 }}>
                     Fill in the missing word or phrase.
@@ -429,9 +426,7 @@ export function QuizPage() {
                     onChange={(e) => setAnswer(currentQuestionKey, e.target.value)}
                   />
                 </div>
-              )}
-
-              {currentQuestionType === "short_answer" && (
+              ) : (
                 <div style={{ marginTop: 8 }}>
                   <div style={{ fontSize: 12, color: "var(--ct-text-muted)", marginBottom: 8 }}>
                     Write a short answer based on the video.
