@@ -4,6 +4,7 @@
 export interface AuthResponse {
   userId: number;
   email: string;
+  name?: string;
   role: string;
   token: string;
   tokenType: string;
@@ -13,6 +14,7 @@ export interface AuthResponse {
 export interface UserInfo {
   userId: number;
   email: string;
+  name?: string;
   role: string;
 }
 

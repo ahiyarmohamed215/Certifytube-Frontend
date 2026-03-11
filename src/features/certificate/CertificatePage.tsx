@@ -8,6 +8,8 @@ import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 
 import { getCertificate } from "../../api/certificate";
+import { getMe } from "../../api/auth";
+import { useAuthStore } from "../../store/useAuthStore";
 
 function fmtPct(v: number | undefined | null): string {
   if (v == null || v === 0) return "-";
@@ -19,10 +21,20 @@ function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 }
 
+function looksLikeEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
 export function CertificatePage() {
   const { certificateId } = useParams();
   const nav = useNavigate();
   const [downloading, setDownloading] = useState(false);
+  const { user } = useAuthStore();
+  const { data: me } = useQuery({
+    queryKey: ["auth", "me", "certificate"],
+    queryFn: getMe,
+    staleTime: 30_000,
+  });
 
   const { data: cert, isLoading, isError } = useQuery({
     queryKey: ["certificate", certificateId],
@@ -74,7 +86,11 @@ export function CertificatePage() {
   const engScore = cert.engagementScore && cert.engagementScore > 0 ? cert.engagementScore : null;
   const quizScore = cert.quizScore && cert.quizScore > 0 ? cert.quizScore : (cert.scorePercent ? cert.scorePercent / 100 : null);
   const issuedYear = new Date(cert.createdAtUtc).getFullYear();
-  const learnerName = cert.learnerName || "Certified Learner";
+  const certLearnerName = cert.learnerName?.trim() || "";
+  const profileName = me?.name?.trim() || user?.name?.trim() || "";
+  const learnerName = certLearnerName && !looksLikeEmail(certLearnerName)
+    ? certLearnerName
+    : profileName || certLearnerName || "Certified Learner";
   const platformName = cert.platformName || "CertifyTube";
 
   return (

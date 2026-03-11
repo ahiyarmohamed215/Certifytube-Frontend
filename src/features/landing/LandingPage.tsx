@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, Brain, Award, ShieldCheck, Sparkles, PlayCircle, ClipboardCheck, BadgeCheck } from "lucide-react";
+import { ArrowRight, Brain, Award, ShieldCheck, PlayCircle, ClipboardCheck, BadgeCheck } from "lucide-react";
 import { useAuthStore } from "../../store/useAuthStore";
 
 const steps = [
@@ -53,38 +53,33 @@ export function LandingPage() {
   return (
     <div className="ct-landing ct-slide-up">
       <section className="ct-landing-hero">
-        <div className="ct-landing-orb ct-landing-orb-one" />
-        <div className="ct-landing-orb ct-landing-orb-two" />
-
         <span className="ct-landing-kicker">
-          <Sparkles size={14} />
-          Mobile-First Learning Certification
+          Learn. Prove. Succeed.
         </span>
 
         <h1 className="ct-landing-title">
-          Turn YouTube Learning Into
-          <span> Verifiable Certificates</span>
+          Turn Knowledge Into
+          <span> Credentials.</span>
         </h1>
 
         <p className="ct-landing-subtitle">
-          CertifyTube helps learners prove skill growth with engagement analysis, quiz validation,
-          and shareable certificates that can be verified instantly.
+          CertifyTube analyzes your viewing engagement and validates your understanding, issuing definitive certificates for self-taught expertise.
         </p>
 
         <div className="ct-landing-actions">
           <button className="ct-btn ct-btn-primary ct-btn-lg" onClick={handlePrimary}>
-            {isLoggedIn ? "Go to Home" : "Get Started"}
+            {isLoggedIn ? "Go to Dashboard" : "Start Learning"}
             <ArrowRight size={16} />
           </button>
           <button className="ct-btn ct-btn-secondary ct-btn-lg" onClick={handleSecondary}>
-            {isLoggedIn ? "Open Dashboard" : "Login"}
+            {isLoggedIn ? "Browse Content" : "Log In"}
           </button>
         </div>
 
         <div className="ct-landing-chips">
-          <span className="ct-cert-chip">Engagement + Quiz validation</span>
-          <span className="ct-cert-chip chip-light">Certificate verification token</span>
-          <span className="ct-cert-chip chip-light">Built for phone users</span>
+          <span className="ct-cert-chip">Engagement Tracking</span>
+          <span className="ct-cert-chip">Skill Validation</span>
+          <span className="ct-cert-chip">Instant Verification</span>
         </div>
       </section>
 
@@ -92,7 +87,7 @@ export function LandingPage() {
         {steps.map(({ icon: Icon, title, desc }) => (
           <article key={title} className="ct-landing-step-card">
             <div className="ct-landing-step-icon">
-              <Icon size={18} />
+              <Icon size={20} />
             </div>
             <h3>{title}</h3>
             <p>{desc}</p>
@@ -102,15 +97,15 @@ export function LandingPage() {
 
       <section className="ct-landing-features">
         <div className="ct-landing-features-head">
-          <h2>Built for serious self-learning, not just video watching</h2>
+          <h2>Validation for serious learners.</h2>
           <p>
-            Track learning continuity, qualify through objective rules, and present proof with a professional certificate.
+            Build a definitive portfolio of your expertise with verifiable certificates backed by real data.
           </p>
         </div>
         <div className="ct-landing-feature-grid">
           {highlights.map(({ icon: Icon, title, desc }) => (
             <article key={title} className="ct-landing-feature-card">
-              <Icon size={20} />
+              <Icon size={22} />
               <h3>{title}</h3>
               <p>{desc}</p>
             </article>

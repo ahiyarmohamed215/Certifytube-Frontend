@@ -1,6 +1,6 @@
 import type { PropsWithChildren } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { type LucideIcon, Home, BookOpen, Award, User, Shield, LogOut, LogIn, UserPlus } from "lucide-react";
+import { type LucideIcon, Home, BookOpen, Award, User, Shield, LogIn, UserPlus } from "lucide-react";
 import { useAuthStore } from "../store/useAuthStore";
 import { logout as apiLogout } from "../api/auth";
 import toast from "react-hot-toast";
@@ -60,18 +60,6 @@ export function AppShell({ children }: PropsWithChildren) {
       { to: "/login", label: "Login", icon: LogIn, active: isLoginActive },
       { to: "/signup", label: "Sign Up", icon: UserPlus, active: isSignupActive },
     ];
-  const footerExploreLinks = isLoggedIn
-    ? [
-      { to: "/home", label: "Home" },
-      { to: "/my-learnings", label: "My Learnings" },
-      { to: "/certified", label: "Certified" },
-      { to: "/profile", label: "Profile" },
-    ]
-    : [
-      { to: "/", label: "Home" },
-      { to: "/login", label: "Login" },
-      { to: "/signup", label: "Sign Up" },
-    ];
 
   return (
     <div className={`ct-shell ${mobileItems.length > 0 ? "ct-shell-with-tabbar" : ""}`}>
@@ -106,10 +94,9 @@ export function AppShell({ children }: PropsWithChildren) {
             {isLoggedIn ? (
               <div className="ct-nav-user">
                 <button
-                  className="ct-btn ct-btn-ghost ct-btn-sm"
+                  className="ct-btn ct-btn-primary ct-btn-sm ct-rounded-pill ct-logout-btn"
                   onClick={handleLogout}
                 >
-                  <LogOut size={14} />
                   Logout
                 </button>
               </div>
@@ -133,12 +120,12 @@ export function AppShell({ children }: PropsWithChildren) {
 
           {isLoggedIn && (
             <button
-              className="ct-btn ct-btn-ghost ct-btn-sm ct-mobile-logout"
+              className="ct-btn ct-btn-primary ct-btn-sm ct-rounded-pill ct-mobile-logout-btn"
               onClick={handleLogout}
               aria-label="Log out"
               title="Log out"
             >
-              <LogOut size={16} />
+              Logout
             </button>
           )}
         </div>
@@ -150,50 +137,32 @@ export function AppShell({ children }: PropsWithChildren) {
         </div>
       </main>
 
-      <footer className="ct-footer">
-        <div className="ct-footer-inner">
-          <div className="ct-footer-top">
-            <div className="ct-footer-brand">
-              <Link to={isLoggedIn ? "/home" : "/"} className="ct-footer-logo">
-                CertifyTube
-              </Link>
-              <p className="ct-footer-description">
-                A verification-first learning platform for tracking progress, proving knowledge,
-                and sharing trusted certificates.
-              </p>
-            </div>
-
-            <div className="ct-footer-columns">
-              <div className="ct-footer-column">
-                <h4>Explore</h4>
-                <div className="ct-footer-links">
-                  {footerExploreLinks.map((link) => (
-                    <Link key={link.to} to={link.to}>
-                      {link.label}
-                    </Link>
-                  ))}
-                </div>
+      {(isHomeActive || isProfileActive) && (
+        <footer className="ct-footer ct-footer-compact">
+          <div className="ct-footer-compact-inner">
+            <div className="ct-footer-main">
+              <div className="ct-footer-brand">
+                <Link to={isLoggedIn ? "/home" : "/"} className="ct-footer-logo">
+                  CertifyTube
+                </Link>
+                <p className="ct-footer-description" style={{ marginTop: '8px', fontSize: '13px', color: '#666', maxWidth: '500px', lineHeight: '1.5', textAlign: 'left' }}>
+                  A verification-first learning platform for tracking progress, proving knowledge, and sharing trusted certificates from YouTube content.
+                </p>
               </div>
-
-              <div className="ct-footer-column">
-                <h4>Platform</h4>
-                <div className="ct-footer-points">
-                  <span>Engagement Analytics</span>
-                  <span>Quiz Qualification</span>
-                  <span>Certificate Verification</span>
-                </div>
+              <div className="ct-footer-links-inline">
+                <Link to="/">How it Works</Link>
+                <Link to="/home">Courses</Link>
+                <Link to="/verify/demo">Verify</Link>
+                <Link to="/profile">Portfolio</Link>
               </div>
             </div>
+            <div className="ct-footer-bottom-line">
+              <span>Copyright {new Date().getFullYear()} CertifyTube. All rights reserved.</span>
+              <span>Watch. Learn. Get Certified.</span>
+            </div>
           </div>
-
-          <div className="ct-footer-bottom">
-            <span className="ct-footer-text">
-              Copyright {new Date().getFullYear()} CertifyTube. All rights reserved.
-            </span>
-            <span className="ct-footer-meta">Watch. Learn. Get Certified.</span>
-          </div>
-        </div>
-      </footer>
+        </footer>
+      )}
 
       {mobileItems.length > 0 && (
         <nav className="ct-mobile-tabbar" aria-label="Mobile app navigation">

@@ -21,7 +21,12 @@ export function LoginPage() {
         setLoading(true);
         try {
             const res = await apiLogin(email, password);
-            setAuth(res.token, { userId: res.userId, email: res.email, role: res.role });
+            setAuth(res.token, {
+                userId: res.userId,
+                email: res.email,
+                name: res.name,
+                role: res.role,
+            });
             try {
                 const me = await getMe();
                 setUser(me);

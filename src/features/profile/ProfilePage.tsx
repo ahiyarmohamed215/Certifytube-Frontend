@@ -1,9 +1,10 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { User, Mail, Shield, Activity, Award, ClipboardCheck, BookOpen, Target, ChevronRight } from "lucide-react";
 import { useAuthStore } from "../../store/useAuthStore";
 import { getDashboard } from "../../api/dashboard";
+import { getMe } from "../../api/auth";
 import type { DashboardVideo } from "../../types/api";
 
 const ENGAGEMENT_THRESHOLD = 0.85;
@@ -26,7 +27,14 @@ function latestSessionByVideo(videos: DashboardVideo[]) {
 
 export function ProfilePage() {
   const nav = useNavigate();
-  const { user } = useAuthStore();
+  const { user, setUser } = useAuthStore();
+
+  const { data: me } = useQuery({
+    queryKey: ["auth", "me", "profile"],
+    queryFn: getMe,
+    staleTime: 0,
+    refetchOnMount: "always",
+  });
 
   const { data } = useQuery({
     queryKey: ["dashboard", "profile-summary"],
@@ -74,7 +82,17 @@ export function ProfilePage() {
     return { active, completed, quizPending, certified, total, completionRate, certificationRate };
   }, [data]);
 
-  const displayName = user?.email?.split("@")[0] || "Learner";
+  useEffect(() => {
+    if (!me) return;
+    const incomingName = me.name?.trim() || "";
+    const existingName = user?.name?.trim() || "";
+    if (incomingName && incomingName !== existingName) {
+      setUser({ ...me, name: incomingName });
+    }
+  }, [me, user?.name, setUser]);
+
+  const identity = me || user;
+  const displayName = identity?.name?.trim() || identity?.email?.split("@")[0] || "Learner";
   const initials = displayName.slice(0, 2).toUpperCase();
 
   return (
@@ -88,16 +106,16 @@ export function ProfilePage() {
           <div className="ct-profile-name">{displayName}</div>
           <div className="ct-profile-email">
             <Mail size={14} />
-            {user?.email || "-"}
+            {identity?.email || "-"}
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
             <span className="ct-badge ct-badge-active">
               <User size={11} />
-              ID {user?.userId ?? "-"}
+              ID {identity?.userId ?? "-"}
             </span>
             <span className="ct-badge ct-badge-not-stem">
               <Shield size={11} />
-              {user?.role || "USER"}
+              {identity?.role || "USER"}
             </span>
           </div>
         </div>
@@ -163,7 +181,7 @@ export function ProfilePage() {
               Search Videos
               <ChevronRight size={14} />
             </button>
-            {user?.role === "ADMIN" && (
+            {identity?.role === "ADMIN" && (
               <button className="ct-profile-nav-btn" onClick={() => nav("/admin")}>
                 Admin Panel
                 <ChevronRight size={14} />
