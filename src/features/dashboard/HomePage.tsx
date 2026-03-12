@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Play, BarChart3, ClipboardCheck, Award, BookOpen, Clock, RotateCcw, Sparkles, Trash2, AlertTriangle, Menu } from "lucide-react";
 import toast from "react-hot-toast";
+import { createPortal } from "react-dom";
 
 import { getDashboard } from "../../api/dashboard";
 import { deleteSessionRecord } from "../../api/sessions";
@@ -602,118 +603,124 @@ export function MyLearningsPage() {
       )}
 
       {deleteTarget && (
-        <div
-          className="ct-modal-backdrop"
-          onClick={() => {
-            if (!deleteMutation.isPending) setDeleteTarget(null);
-          }}
-        >
+        createPortal(
           <div
-            className="ct-modal-card ct-delete-modal"
-            onClick={(e) => e.stopPropagation()}
+            className="ct-modal-backdrop"
+            onClick={() => {
+              if (!deleteMutation.isPending) setDeleteTarget(null);
+            }}
           >
-            <div className="ct-delete-modal-icon">
-              <AlertTriangle size={22} />
+            <div
+              className="ct-modal-card ct-delete-modal"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="ct-delete-modal-icon">
+                <AlertTriangle size={22} />
+              </div>
+              <h3 className="ct-delete-modal-title">Delete Session?</h3>
+              <p className="ct-delete-modal-text">
+                This will remove the session from My Learnings.
+              </p>
+              <p className="ct-delete-modal-subtext">
+                <strong>{deleteTarget.videoTitle}</strong>
+              </p>
+              <div className="ct-modal-actions">
+                <button
+                  className="ct-btn ct-btn-secondary"
+                  onClick={() => setDeleteTarget(null)}
+                  disabled={deleteMutation.isPending}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="ct-btn ct-btn-danger"
+                  onClick={confirmDeleteSession}
+                  disabled={deleteMutation.isPending}
+                >
+                  <Trash2 size={15} />
+                  {deleteMutation.isPending ? "Deleting..." : "Delete Session"}
+                </button>
+              </div>
             </div>
-            <h3 className="ct-delete-modal-title">Delete Session?</h3>
-            <p className="ct-delete-modal-text">
-              This will remove the session from My Learnings.
-            </p>
-            <p className="ct-delete-modal-subtext">
-              <strong>{deleteTarget.videoTitle}</strong>
-            </p>
-            <div className="ct-modal-actions">
-              <button
-                className="ct-btn ct-btn-secondary"
-                onClick={() => setDeleteTarget(null)}
-                disabled={deleteMutation.isPending}
-              >
-                Cancel
-              </button>
-              <button
-                className="ct-btn ct-btn-danger"
-                onClick={confirmDeleteSession}
-                disabled={deleteMutation.isPending}
-              >
-                <Trash2 size={15} />
-                {deleteMutation.isPending ? "Deleting..." : "Delete Session"}
-              </button>
-            </div>
-          </div>
-        </div>
+          </div>,
+          document.body,
+        )
       )}
 
       {attemptsVideoId && (
-        <div
-          className="ct-modal-backdrop"
-          onClick={() => setAttemptsVideoId(null)}
-        >
+        createPortal(
           <div
-            className="ct-modal-card ct-attempts-modal"
-            onClick={(e) => e.stopPropagation()}
+            className="ct-modal-backdrop"
+            onClick={() => setAttemptsVideoId(null)}
           >
-            <div className="ct-attempts-modal-header">
-              <div>
-                <h3 className="ct-attempts-modal-title">
-                  {attemptsTitle || "Video Attempts"}
-                </h3>
-                <p className="ct-attempts-modal-subtitle">
-                  History of your watch sessions and engagement scores
-                </p>
-              </div>
-              <button
-                className="ct-attempts-modal-close"
-                onClick={() => setAttemptsVideoId(null)}
-                aria-label="Close attempts modal"
-              >
-                <span style={{ fontSize: 20, lineHeight: 1 }}>&times;</span>
-              </button>
-            </div>
-
-            <div className="ct-attempts-modal-list">
-              {attemptsSessions.map((s, idx) => (
-                <div
-                  key={s.sessionId}
-                  className="ct-attempt-item"
-                >
-                  <div>
-                    <div className="ct-attempt-item-top">
-                      <span className="ct-attempt-item-label">
-                        Attempt {attemptsSessions.length - idx}
-                      </span>
-                      {statusBadge(s.status)}
-                    </div>
-                    <div className="ct-attempt-item-meta">
-                      <span className="ct-attempt-item-time">
-                        <Clock size={12} />
-                        {new Date(s.createdAt).toLocaleString(undefined, {
-                          month: "short", day: "numeric", hour: "numeric", minute: "2-digit"
-                        })}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="ct-attempt-score">
-                    <div
-                      className={`ct-attempt-score-value ${s.engagementScore != null && s.engagementScore >= ENGAGEMENT_THRESHOLD ? "good" : ""}`}
-                    >
-                      {s.engagementScore == null ? "-" : `${(s.engagementScore * 100).toFixed(0)}%`}
-                    </div>
-                    <div className="ct-attempt-score-label">
-                      Score
-                    </div>
-                  </div>
+            <div
+              className="ct-modal-card ct-attempts-modal"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="ct-attempts-modal-header">
+                <div>
+                  <h3 className="ct-attempts-modal-title">
+                    {attemptsTitle || "Video Attempts"}
+                  </h3>
+                  <p className="ct-attempts-modal-subtitle">
+                    History of your watch sessions and engagement scores
+                  </p>
                 </div>
-              ))}
-            </div>
+                <button
+                  className="ct-attempts-modal-close"
+                  onClick={() => setAttemptsVideoId(null)}
+                  aria-label="Close attempts modal"
+                >
+                  <span style={{ fontSize: 20, lineHeight: 1 }}>&times;</span>
+                </button>
+              </div>
 
-            <div className="ct-attempts-modal-actions">
-              <button className="ct-btn ct-btn-secondary" onClick={() => setAttemptsVideoId(null)}>
-                Close
-              </button>
+              <div className="ct-attempts-modal-list">
+                {attemptsSessions.map((s, idx) => (
+                  <div
+                    key={s.sessionId}
+                    className="ct-attempt-item"
+                  >
+                    <div>
+                      <div className="ct-attempt-item-top">
+                        <span className="ct-attempt-item-label">
+                          Attempt {attemptsSessions.length - idx}
+                        </span>
+                        {statusBadge(s.status)}
+                      </div>
+                      <div className="ct-attempt-item-meta">
+                        <span className="ct-attempt-item-time">
+                          <Clock size={12} />
+                          {new Date(s.createdAt).toLocaleString(undefined, {
+                            month: "short", day: "numeric", hour: "numeric", minute: "2-digit"
+                          })}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="ct-attempt-score">
+                      <div
+                        className={`ct-attempt-score-value ${s.engagementScore != null && s.engagementScore >= ENGAGEMENT_THRESHOLD ? "good" : ""}`}
+                      >
+                        {s.engagementScore == null ? "-" : `${(s.engagementScore * 100).toFixed(0)}%`}
+                      </div>
+                      <div className="ct-attempt-score-label">
+                        Score
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="ct-attempts-modal-actions">
+                <button className="ct-btn ct-btn-secondary" onClick={() => setAttemptsVideoId(null)}>
+                  Close
+                </button>
+              </div>
             </div>
-          </div>
-        </div>
+          </div>,
+          document.body,
+        )
       )}
     </div>
   );

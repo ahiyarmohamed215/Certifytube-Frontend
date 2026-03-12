@@ -99,6 +99,7 @@ export function WatchPage() {
   const [lastPos, setLastPos] = useState<number | null>(null);
   const [sessionEnded, setSessionEnded] = useState(false);
   const [endingSession, setEndingSession] = useState(false);
+  const [showWatchIntro, setShowWatchIntro] = useState(true);
 
   const [playerState, setPlayerState] = useState(-1);
   const [currentTime, setCurrentTime] = useState(0);
@@ -121,7 +122,9 @@ export function WatchPage() {
   });
 
   const suggestedVideos = useMemo(
-    () => pickLatestByVideo(dashboardData).filter((v) => v.videoId !== videoId).slice(0, 12),
+    () => pickLatestByVideo(dashboardData)
+      .filter((v) => v.videoId !== videoId && v.status === "ACTIVE")
+      .slice(0, 12),
     [dashboardData, videoId],
   );
 
@@ -171,6 +174,11 @@ export function WatchPage() {
   useEffect(() => {
     if (!videoId) return;
     let cancelled = false;
+    window.scrollTo({ top: 0, behavior: "auto" });
+    const mainEl = document.querySelector(".ct-main");
+    if (mainEl instanceof HTMLElement) {
+      mainEl.scrollTo({ top: 0, behavior: "auto" });
+    }
     const preferredTitle = locState.videoTitle || queryTitle || `Video ${videoId}`;
     const tokenKey = localStorage.getItem("ct_token") || "anon";
     const dedupeKey = `${tokenKey}:${videoId}`;
@@ -263,7 +271,7 @@ export function WatchPage() {
       sessionEndedRef.current = true;
       if (mountedRef.current) {
         setSessionEnded(true);
-        toast.success("Session ended");
+        toast.success("Session completed");
       }
       return sid;
     } catch (e: any) {
@@ -369,7 +377,7 @@ export function WatchPage() {
     } else if (state === 0) {
       eventType = "ended";
       stopTimer();
-      toast("Video finished. Click End Session to continue.");
+      toast("Video finished. Click Complete Session to continue.");
     } else {
       return;
     }
@@ -466,53 +474,11 @@ export function WatchPage() {
   return (
     <div className="ct-slide-up ct-watch-layout">
       <section className="ct-watch-main">
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 14 }}>
-          <h1 className="ct-page-title" style={{ fontSize: 22, marginBottom: 0 }}>
+        <div className="ct-watch-title-row">
+          <h1 className="ct-page-title ct-watch-video-title" style={{ fontSize: 22, marginBottom: 0 }}>
             {title || "Watching Video"}
           </h1>
-          <button className="ct-btn ct-btn-ghost ct-btn-sm" onClick={() => nav("/my-learnings")}>
-            <X size={14} />
-            Close Player
-          </button>
-        </div>
-
-        {!stemEligible && stemMessage && (
-          <div className="ct-banner ct-banner-warning" style={{ marginBottom: 16 }}>
-            <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: 2 }} />
-            <span>{stemMessage}</span>
-          </div>
-        )}
-
-        <div style={{ borderRadius: "var(--ct-radius-lg)", overflow: "hidden", border: "1px solid var(--ct-border)", marginBottom: 18 }}>
-          <YouTube
-            videoId={videoId}
-            onReady={onReady}
-            onStateChange={onStateChange}
-            onPlaybackRateChange={onPlaybackRateChange}
-            opts={{
-              width: "100%",
-              height: "500",
-              playerVars: { autoplay: 0, rel: 0, modestbranding: 1 },
-            }}
-            style={{ width: "100%", display: "block" }}
-          />
-        </div>
-
-        <div className="ct-card">
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-            <span className={`ct-badge ${stemEligible ? "ct-badge-stem" : "ct-badge-not-stem"}`}>
-              {stemEligible ? "STEM Eligible" : "Non-STEM"}
-            </span>
-            <span className={`ct-badge ${sessionEnded ? "ct-badge-completed" : "ct-badge-active"}`}>
-              {sessionEnded ? "Session Completed" : "Session Active"}
-            </span>
-          </div>
-
-          <p style={{ fontSize: 13, color: "var(--ct-text-secondary)", marginBottom: 12 }}>
-            Events are sent in background batches while you watch. Click End Session only when you are fully done.
-          </p>
-
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <div className="ct-watch-title-actions">
             {!sessionEnded ? (
               <button
                 className="ct-btn ct-btn-primary ct-btn-sm"
@@ -521,7 +487,7 @@ export function WatchPage() {
                 id="end-session-btn"
               >
                 <StopCircle size={14} />
-                {endingSession ? "Ending..." : (stemEligible ? "End Session" : "Complete")}
+                {endingSession ? "Completing..." : "Complete Session"}
               </button>
             ) : (
               stemEligible ? (
@@ -543,7 +509,66 @@ export function WatchPage() {
                 </button>
               )
             )}
+            <button className="ct-btn ct-btn-sm ct-watch-close-btn" onClick={() => nav("/my-learnings")}>
+              <X size={14} />
+              Close Player
+            </button>
           </div>
+        </div>
+
+        {!stemEligible && stemMessage && (
+          <div className="ct-banner ct-banner-warning" style={{ marginBottom: 16 }}>
+            <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: 2 }} />
+            <span>{stemMessage}</span>
+          </div>
+        )}
+
+        <div className="ct-watch-player-wrap">
+          {!showWatchIntro ? (
+            <YouTube
+              videoId={videoId}
+              onReady={onReady}
+              onStateChange={onStateChange}
+              onPlaybackRateChange={onPlaybackRateChange}
+              opts={{
+                width: "100%",
+                height: "500",
+                playerVars: { autoplay: 0, rel: 0, modestbranding: 1 },
+              }}
+              style={{ width: "100%", display: "block" }}
+            />
+          ) : (
+            <div className="ct-watch-player-placeholder" aria-hidden="true">
+              <img
+                src={`https://img.youtube.com/vi/${videoId}/hqdefault.jpg`}
+                alt="Video preview"
+                className="ct-watch-player-placeholder-img"
+              />
+            </div>
+          )}
+          {showWatchIntro && (
+            <div className="ct-watch-frame-overlay">
+              <div className="ct-watch-frame-popup">
+                <h3 className="ct-watch-intro-title">Before You Start</h3>
+                <div className="ct-watch-intro-top">
+                  <span className={`ct-badge ${stemEligible ? "ct-badge-stem" : "ct-badge-not-stem"}`}>
+                    {stemEligible ? "STEM Eligible" : "Non-STEM"}
+                  </span>
+                  <span className={`ct-badge ${sessionEnded ? "ct-badge-completed" : "ct-badge-active"}`}>
+                    {sessionEnded ? "Session Completed" : "Session Active"}
+                  </span>
+                </div>
+                <p className="ct-watch-intro-text">
+                  Events are sent in background batches while you watch. Click Complete Session only when you are fully done.
+                </p>
+                <div className="ct-modal-actions" style={{ marginTop: 12 }}>
+                  <button className="ct-btn ct-btn-primary" onClick={() => setShowWatchIntro(false)}>
+                    Okay
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {sessionEnded && !stemEligible && (
