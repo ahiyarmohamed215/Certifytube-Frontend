@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ClipboardCheck, RotateCcw, Send } from "lucide-react";
+import { ArrowLeft, ClipboardCheck, RotateCcw, Send, X } from "lucide-react";
 import toast from "react-hot-toast";
 
 import { generateQuiz, getQuiz, getQuizEligibility, getQuizResult, submitQuiz } from "../../api/quiz";
@@ -11,6 +11,8 @@ type QuizLocationState = {
   sessionId?: string;
   videoId?: string;
   videoTitle?: string;
+  fromStatus?: "active" | "completed" | "quiz";
+  fromPath?: string;
 };
 
 type NormalizedQuestionType = "mcq" | "true_false" | "fill_blank" | "short_answer";
@@ -66,12 +68,15 @@ export function QuizPage() {
   const location = useLocation();
   const locationState = (location.state as QuizLocationState | null) || null;
   const sessionIdFromState = locationState?.sessionId;
+  const fromStatus = locationState?.fromStatus === "active" || locationState?.fromStatus === "completed" || locationState?.fromStatus === "quiz"
+    ? locationState.fromStatus
+    : "quiz";
+  const fromPath = (locationState?.fromPath || `/my-learnings?status=${fromStatus}`).trim();
 
   const [quiz, setQuiz] = useState<QuizGenerateResponse | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [generating, setGenerating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [difficulty, setDifficulty] = useState<"easy" | "medium" | "hard">("medium");
   const [needsGenerate, setNeedsGenerate] = useState(false);
   const [sessionIdForGenerate, setSessionIdForGenerate] = useState<string | null>(sessionIdFromState ?? null);
   const [eligibility, setEligibility] = useState<QuizEligibility | null>(null);
@@ -163,14 +168,23 @@ export function QuizPage() {
 
     setGenerating(true);
     try {
-      const q = await generateQuiz({ sessionId: sid, difficulty });
+      const q = await generateQuiz({ sessionId: sid });
       setQuiz(q);
       setAnswers({});
       setActiveQuestionIndex(0);
       setNeedsGenerate(false);
       setSessionIdForGenerate(q.sessionId);
       toast.success("Quiz generated");
-      nav(`/quiz/${q.quizId}`, { replace: true, state: { sessionId: q.sessionId } });
+      nav(`/quiz/${q.quizId}`, {
+        replace: true,
+        state: {
+          sessionId: q.sessionId,
+          videoId: locationState?.videoId,
+          videoTitle: locationState?.videoTitle,
+          fromStatus,
+          fromPath,
+        },
+      });
     } catch (e: any) {
       toast.error(e?.message || "Failed to generate quiz");
     } finally {
@@ -237,6 +251,8 @@ export function QuizPage() {
           result: res,
           quizQuestions: quiz.questions,
           submittedAnswers: answers,
+          fromStatus,
+          fromPath,
         },
       });
     } catch (e: any) {
@@ -254,6 +270,8 @@ export function QuizPage() {
               quizQuestions: quiz.questions,
               submittedAnswers: answers,
               submitError: msg,
+              fromStatus,
+              fromPath,
             },
           });
           return;
@@ -274,7 +292,21 @@ export function QuizPage() {
 
   const goWatchAgain = () => {
     if (locationState?.videoId) {
-      nav(`/watch/${locationState.videoId}`, { state: { videoTitle: locationState.videoTitle } });
+      nav(`/watch/${locationState.videoId}`, {
+        state: {
+          videoTitle: locationState.videoTitle,
+          fromStatus,
+          fromPath,
+        },
+      });
+      return;
+    }
+    nav(fromPath, { state: { initialStatus: fromStatus } });
+  };
+  const goMyLearnings = () => nav(fromPath, { state: { initialStatus: fromStatus } });
+  const goBack = () => {
+    if (locationState?.fromPath || locationState?.fromStatus) {
+      goMyLearnings();
       return;
     }
     nav(-1);
@@ -284,9 +316,14 @@ export function QuizPage() {
 
   return (
     <div className="ct-slide-up" style={{ maxWidth: 800, margin: "0 auto" }}>
-      <button className="ct-btn ct-btn-ghost ct-btn-sm" onClick={() => nav(-1)} style={{ marginBottom: 16 }}>
-        <ArrowLeft size={14} /> Go Back
-      </button>
+      <div className="ct-analyze-topbar">
+        <button className="ct-btn ct-btn-secondary ct-btn-sm ct-analyze-back-btn" onClick={goBack}>
+          <ArrowLeft size={14} /> Back
+        </button>
+        <button className="ct-btn ct-btn-sm ct-analyze-close-btn" onClick={goMyLearnings}>
+          <X size={14} /> Close
+        </button>
+      </div>
 
       <h1 className="ct-page-title">
         <ClipboardCheck size={28} style={{ verticalAlign: "middle", marginRight: 8, color: "var(--ct-accent-light)" }} />
@@ -329,15 +366,6 @@ export function QuizPage() {
               Attempts remaining: {eligibility.remainingAttempts}
             </p>
           )}
-
-          <div style={{ display: "flex", gap: 12, justifyContent: "center", alignItems: "center", marginBottom: 20 }}>
-            <label className="ct-form-label" style={{ margin: 0 }}>Difficulty:</label>
-            <select className="ct-select" value={difficulty} onChange={(e) => setDifficulty(e.target.value as "easy" | "medium" | "hard")}>
-              <option value="easy">Easy</option>
-              <option value="medium">Medium</option>
-              <option value="hard">Hard</option>
-            </select>
-          </div>
 
           <button
             className="ct-btn ct-btn-primary ct-btn-lg"

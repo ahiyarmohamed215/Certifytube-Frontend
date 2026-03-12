@@ -12,6 +12,8 @@ type ResultLocationState = {
   quizQuestions?: QuizQuestion[];
   submittedAnswers?: Record<string, string>;
   submitError?: string;
+  fromStatus?: "active" | "completed" | "quiz";
+  fromPath?: string;
 };
 
 type ReviewRow = {
@@ -191,6 +193,10 @@ export function ResultPage() {
   const nav = useNavigate();
   const location = useLocation();
   const locationState = (location.state as ResultLocationState | null) || null;
+  const fromStatus = locationState?.fromStatus === "active" || locationState?.fromStatus === "completed" || locationState?.fromStatus === "quiz"
+    ? locationState.fromStatus
+    : "quiz";
+  const fromPath = (locationState?.fromPath || `/my-learnings?status=${fromStatus}`).trim();
 
   const stateResult = locationState?.result;
   const [result, setResult] = useState<QuizSubmitResponse | null>(stateResult || null);
@@ -316,7 +322,12 @@ export function ResultPage() {
       return;
     }
 
-    nav(`/certificate/${latest.certificateId}`);
+    nav(`/certificate/${latest.certificateId}`, {
+      state: {
+        fromStatus,
+        fromPath,
+      },
+    });
   };
 
   const handleDownload = async () => {

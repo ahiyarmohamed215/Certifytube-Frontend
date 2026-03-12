@@ -20,7 +20,7 @@ export interface QuizQuestion {
 
 export interface QuizGenerateRequest {
   sessionId: string;
-  difficulty: 'easy' | 'medium' | 'hard';
+  difficulty?: 'easy' | 'medium' | 'hard';
   numQuestions?: number;
   includeCoding?: boolean;
 }

@@ -10,7 +10,27 @@ import { getDashboard } from "../../api/dashboard";
 import { useEventBatcher } from "./hooks/useEventBatcher";
 import type { DashboardResponse, DashboardVideo, EventPayload, SessionStatus, StartSessionResponse } from "../../types/api";
 
-type LocationState = { videoTitle?: string };
+type LearningStatusTab = "active" | "completed" | "quiz";
+
+type LocationState = {
+  videoTitle?: string;
+  fromStatus?: LearningStatusTab;
+  fromPath?: string;
+};
+
+type PersistedWatchContext = {
+  videoId: string;
+  videoTitle?: string;
+  fromStatus: LearningStatusTab;
+  fromPath: string;
+};
+
+const WATCH_RESUME_KEY = "ct_watch_resume_context";
+
+function normalizeLearningStatus(value: unknown): LearningStatusTab | null {
+  if (value === "active" || value === "completed" || value === "quiz") return value;
+  return null;
+}
 
 const inflightStartSessionByKey = new Map<string, Promise<StartSessionResponse>>();
 
@@ -90,15 +110,18 @@ export function WatchPage() {
   const [searchParams] = useSearchParams();
   const locState = (location.state || {}) as LocationState;
   const queryTitle = (searchParams.get("title") || "").trim();
+  const fromStatus = normalizeLearningStatus(locState.fromStatus) || "active";
+  const fromPath = (locState.fromPath || `/my-learnings?status=${fromStatus}`).trim();
 
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [title, setTitle] = useState(locState.videoTitle || queryTitle || "");
-  const [stemEligible, setStemEligible] = useState(true);
+  const [stemEligible, setStemEligible] = useState<boolean | null>(null);
   const [stemMessage, setStemMessage] = useState<string | null>(null);
   const [resumed, setResumed] = useState(false);
   const [lastPos, setLastPos] = useState<number | null>(null);
   const [sessionEnded, setSessionEnded] = useState(false);
   const [endingSession, setEndingSession] = useState(false);
+  const [closingPlayer, setClosingPlayer] = useState(false);
   const [showWatchIntro, setShowWatchIntro] = useState(true);
 
   const [playerState, setPlayerState] = useState(-1);
@@ -115,6 +138,11 @@ export function WatchPage() {
   const lastSeekSentAtRef = useRef(0);
   const suppressSeekUntilMsRef = useRef(0);
   const canLog = Boolean(sessionId && !sessionEnded);
+  const canLogRef = useRef(false);
+  const shouldPersistWatchContextRef = useRef(true);
+  const makeEventRef = useRef<(type: string, extras?: Partial<EventPayload>) => EventPayload>(() => {
+    throw new Error("watch event builder is not ready");
+  });
 
   const { data: dashboardData } = useQuery({
     queryKey: ["dashboard", "watch-suggestions"],
@@ -146,6 +174,10 @@ export function WatchPage() {
     sessionEndedRef.current = sessionEnded;
   }, [sessionEnded]);
 
+  useEffect(() => {
+    canLogRef.current = canLog;
+  }, [canLog]);
+
   useEffect(() => () => {
     mountedRef.current = false;
   }, []);
@@ -172,6 +204,34 @@ export function WatchPage() {
   }), [sessionId, playerState, currentTime, duration]);
 
   useEffect(() => {
+    makeEventRef.current = makeEvent;
+  }, [makeEvent]);
+
+  const clearPersistedWatchContext = useCallback(() => {
+    try {
+      sessionStorage.removeItem(WATCH_RESUME_KEY);
+    } catch {
+      // noop
+    }
+  }, []);
+
+  const savePersistedWatchContext = useCallback(() => {
+    if (!shouldPersistWatchContextRef.current) return;
+    if (!videoId || sessionEndedRef.current) return;
+    const payload: PersistedWatchContext = {
+      videoId,
+      videoTitle: title,
+      fromStatus,
+      fromPath,
+    };
+    try {
+      sessionStorage.setItem(WATCH_RESUME_KEY, JSON.stringify(payload));
+    } catch {
+      // noop
+    }
+  }, [videoId, title, fromStatus, fromPath]);
+
+  useEffect(() => {
     if (!videoId) return;
     let cancelled = false;
     window.scrollTo({ top: 0, behavior: "auto" });
@@ -182,6 +242,9 @@ export function WatchPage() {
     const preferredTitle = locState.videoTitle || queryTitle || `Video ${videoId}`;
     const tokenKey = localStorage.getItem("ct_token") || "anon";
     const dedupeKey = `${tokenKey}:${videoId}`;
+    shouldPersistWatchContextRef.current = true;
+    setStemEligible(null);
+    setShowWatchIntro(true);
 
     (async () => {
       try {
@@ -198,6 +261,7 @@ export function WatchPage() {
         setResumed(res.resumed);
         setLastPos(res.lastPositionSec);
         setSessionEnded(false);
+        setShowWatchIntro(res.stemEligible && !res.resumed);
       } catch (e: any) {
         toast.error(e?.message || "Failed to start session");
       }
@@ -316,7 +380,31 @@ export function WatchPage() {
   }, [stopTimer]);
 
   useEffect(() => {
+    if (sessionEnded) {
+      clearPersistedWatchContext();
+      return;
+    }
+    if (!shouldPersistWatchContextRef.current) return;
+    if (!videoId) return;
+    savePersistedWatchContext();
+  }, [sessionEnded, videoId, title, savePersistedWatchContext, clearPersistedWatchContext]);
+
+  useEffect(() => {
     const handlePageHide = () => {
+      if (canLogRef.current) {
+        try {
+          const state = Number(playerRef.current?.getPlayerState?.() ?? -1);
+          const checkpointType = state === 1 ? "play" : state === 3 ? "buffering" : "pause";
+          enqueue(makeEventRef.current(checkpointType));
+        } catch {
+          // noop
+        }
+      }
+      if (shouldPersistWatchContextRef.current) {
+        savePersistedWatchContext();
+      } else {
+        clearPersistedWatchContext();
+      }
       stopTimer();
       void flush();
     };
@@ -327,10 +415,24 @@ export function WatchPage() {
     return () => {
       window.removeEventListener("pagehide", handlePageHide);
       window.removeEventListener("beforeunload", handlePageHide);
+      if (canLogRef.current) {
+        try {
+          const state = Number(playerRef.current?.getPlayerState?.() ?? -1);
+          const checkpointType = state === 1 ? "play" : state === 3 ? "buffering" : "pause";
+          enqueue(makeEventRef.current(checkpointType));
+        } catch {
+          // noop
+        }
+      }
+      if (shouldPersistWatchContextRef.current) {
+        savePersistedWatchContext();
+      } else {
+        clearPersistedWatchContext();
+      }
       stopTimer();
       void flush();
     };
-  }, [flush, stopTimer]);
+  }, [enqueue, flush, stopTimer, savePersistedWatchContext, clearPersistedWatchContext]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const onReady = (e: any) => {
@@ -344,6 +446,11 @@ export function WatchPage() {
 
     if (resumed && lastPos != null && lastPos > 0) {
       e.target.seekTo(lastPos, true);
+      try {
+        e.target.pauseVideo?.();
+      } catch {
+        // noop
+      }
       suppressSeekUntilMsRef.current = Date.now() + 1500;
       lastObservedTimeRef.current = lastPos;
       toast.success(`Resumed at ${Math.floor(lastPos / 60)}:${Math.floor(lastPos % 60).toString().padStart(2, "0")}`);
@@ -455,21 +562,64 @@ export function WatchPage() {
 
     const endedSid = await flushAndEndSession();
     if (endedSid) {
-      nav(`/analyze/${endedSid}`, {
-        state: {
-          videoId,
-          videoTitle: title,
-        },
-      });
+      shouldPersistWatchContextRef.current = false;
+      clearPersistedWatchContext();
+      if (stemEligible) {
+        nav(`/analyze/${endedSid}`, {
+          state: {
+            videoId,
+            videoTitle: title,
+            fromStatus,
+            fromPath,
+          },
+        });
+        return;
+      }
+      nav("/my-learnings?status=completed", { state: { initialStatus: "completed" } });
+    }
+  };
+
+  const handleClosePlayer = async () => {
+    if (closingPlayer) return;
+    setClosingPlayer(true);
+    shouldPersistWatchContextRef.current = false;
+    try {
+      if (canLogRef.current) {
+        try {
+          const state = Number(playerRef.current?.getPlayerState?.() ?? -1);
+          const checkpointType = state === 1 ? "play" : state === 3 ? "buffering" : "pause";
+          enqueue(makeEventRef.current(checkpointType));
+        } catch {
+          // noop
+        }
+        stopTimer();
+        for (let i = 0; i < 3; i += 1) {
+          await flush();
+          if (getPendingCount() === 0) break;
+          await new Promise((resolve) => window.setTimeout(resolve, 120));
+        }
+      }
+    } finally {
+      clearPersistedWatchContext();
+      nav(fromPath, { state: { initialStatus: fromStatus } });
     }
   };
 
   const goAnalyze = () => {
     if (!sessionId) return;
-    nav(`/analyze/${sessionId}`);
+    nav(`/analyze/${sessionId}`, {
+      state: {
+        videoId,
+        videoTitle: title,
+        fromStatus,
+        fromPath,
+      },
+    });
   };
 
   if (!videoId) return <div className="ct-empty">Missing video ID</div>;
+  const shouldShowIntro = showWatchIntro && stemEligible === true;
+  const isSessionReady = stemEligible !== null;
 
   return (
     <div className="ct-slide-up ct-watch-layout">
@@ -509,14 +659,18 @@ export function WatchPage() {
                 </button>
               )
             )}
-            <button className="ct-btn ct-btn-sm ct-watch-close-btn" onClick={() => nav("/my-learnings")}>
+            <button
+              className="ct-btn ct-btn-sm ct-watch-close-btn"
+              onClick={handleClosePlayer}
+              disabled={closingPlayer}
+            >
               <X size={14} />
-              Close Player
+              {closingPlayer ? "Closing..." : "Close Player"}
             </button>
           </div>
         </div>
 
-        {!stemEligible && stemMessage && (
+        {stemEligible === false && stemMessage && (
           <div className="ct-banner ct-banner-warning" style={{ marginBottom: 16 }}>
             <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: 2 }} />
             <span>{stemMessage}</span>
@@ -524,7 +678,15 @@ export function WatchPage() {
         )}
 
         <div className="ct-watch-player-wrap">
-          {!showWatchIntro ? (
+          {!isSessionReady ? (
+            <div className="ct-watch-player-placeholder" aria-hidden="true">
+              <img
+                src={`https://img.youtube.com/vi/${videoId}/hqdefault.jpg`}
+                alt="Video preview"
+                className="ct-watch-player-placeholder-img"
+              />
+            </div>
+          ) : !shouldShowIntro ? (
             <YouTube
               videoId={videoId}
               onReady={onReady}
@@ -546,14 +708,12 @@ export function WatchPage() {
               />
             </div>
           )}
-          {showWatchIntro && (
+          {shouldShowIntro && (
             <div className="ct-watch-frame-overlay">
               <div className="ct-watch-frame-popup">
                 <h3 className="ct-watch-intro-title">Before You Start</h3>
                 <div className="ct-watch-intro-top">
-                  <span className={`ct-badge ${stemEligible ? "ct-badge-stem" : "ct-badge-not-stem"}`}>
-                    {stemEligible ? "STEM Eligible" : "Non-STEM"}
-                  </span>
+                  <span className="ct-badge ct-badge-stem">STEM Eligible</span>
                   <span className={`ct-badge ${sessionEnded ? "ct-badge-completed" : "ct-badge-active"}`}>
                     {sessionEnded ? "Session Completed" : "Session Active"}
                   </span>
@@ -571,7 +731,7 @@ export function WatchPage() {
           )}
         </div>
 
-        {sessionEnded && !stemEligible && (
+        {sessionEnded && stemEligible === false && (
           <div className="ct-banner ct-banner-warning" style={{ marginTop: 16 }}>
             <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: 2 }} />
             <span>Session ended. This video is not STEM-eligible, so engagement analysis is unavailable.</span>
@@ -595,7 +755,13 @@ export function WatchPage() {
                 key={v.sessionId}
                 type="button"
                 className="ct-watch-suggest-item"
-                onClick={() => nav(`/watch/${v.videoId}`, { state: { videoTitle: v.videoTitle } })}
+                onClick={() => nav(`/watch/${v.videoId}`, {
+                  state: {
+                    videoTitle: v.videoTitle,
+                    fromStatus,
+                    fromPath,
+                  },
+                })}
               >
                 <img
                   src={v.thumbnailUrl || `https://img.youtube.com/vi/${v.videoId}/mqdefault.jpg`}

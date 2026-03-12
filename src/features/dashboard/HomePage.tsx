@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { Play, BarChart3, ClipboardCheck, Award, BookOpen, Clock, RotateCcw, Sparkles, Trash2, AlertTriangle, Menu } from "lucide-react";
 import toast from "react-hot-toast";
 import { createPortal } from "react-dom";
@@ -20,6 +20,33 @@ type VideoInsight = {
 };
 
 type StemFilter = "all" | "stem" | "nonstem";
+type LearningStatusTab = "active" | "completed" | "quiz";
+type PersistedWatchContext = {
+  videoId: string;
+  videoTitle?: string;
+  fromStatus?: LearningStatusTab;
+  fromPath?: string;
+};
+
+const WATCH_RESUME_KEY = "ct_watch_resume_context";
+
+function readPersistedWatchContext(): PersistedWatchContext | null {
+  let raw = "";
+  try {
+    raw = sessionStorage.getItem(WATCH_RESUME_KEY) || "";
+  } catch {
+    return null;
+  }
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as PersistedWatchContext;
+    if (!parsed?.videoId) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
 
 function applyStemFilter(videos: DashboardVideo[], filter: StemFilter) {
   if (filter === "stem") return videos.filter((v) => v.stemEligible);
@@ -312,17 +339,70 @@ function Section({
 
 export function MyLearningsPage() {
   const nav = useNavigate();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const qc = useQueryClient();
   const [attemptsVideoId, setAttemptsVideoId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DashboardVideo | null>(null);
-  const [selectedStatus, setSelectedStatus] = useState<"active" | "completed" | "quiz">("active");
+  const [selectedStatus, setSelectedStatus] = useState<LearningStatusTab>(() => {
+    const stateStatus = (location.state as { initialStatus?: LearningStatusTab } | null)?.initialStatus;
+    if (stateStatus === "active" || stateStatus === "completed" || stateStatus === "quiz") {
+      return stateStatus;
+    }
+    const status = searchParams.get("status");
+    if (status === "completed" || status === "quiz" || status === "active") {
+      return status;
+    }
+    return "active";
+  });
   const [stemFilter, setStemFilter] = useState<StemFilter>("all");
+  const [resumeContext, setResumeContext] = useState<PersistedWatchContext | null>(() => readPersistedWatchContext());
   const hasOpenModal = Boolean(deleteTarget || attemptsVideoId);
+
+  useEffect(() => {
+    if (location.pathname !== "/my-learnings") return;
+    const next = readPersistedWatchContext();
+    setResumeContext(next);
+    if (!next) {
+      try {
+        sessionStorage.removeItem(WATCH_RESUME_KEY);
+      } catch {
+        // noop
+      }
+    }
+  }, [location.pathname, location.key]);
 
   const toggleStemFilter = (next: StemFilter) => {
     setStemFilter((prev) => {
       if (next === "all") return "all";
       return prev === next ? "all" : next;
+    });
+  };
+
+  const closeResumeContext = () => {
+    try {
+      sessionStorage.removeItem(WATCH_RESUME_KEY);
+    } catch {
+      // noop
+    }
+    setResumeContext(null);
+  };
+
+  const continueResumeContext = () => {
+    if (!resumeContext?.videoId) {
+      closeResumeContext();
+      return;
+    }
+    const resumeStatus: LearningStatusTab = resumeContext.fromStatus === "active" || resumeContext.fromStatus === "completed" || resumeContext.fromStatus === "quiz"
+      ? resumeContext.fromStatus
+      : "active";
+    const resumePath = (resumeContext.fromPath || `/my-learnings?status=${resumeStatus}`).trim();
+    nav(`/watch/${resumeContext.videoId}`, {
+      state: {
+        videoTitle: resumeContext.videoTitle,
+        fromStatus: resumeStatus,
+        fromPath: resumePath,
+      },
     });
   };
 
@@ -418,12 +498,14 @@ export function MyLearningsPage() {
 
   const openVideo = (v: DashboardVideo) => {
     const action = actionFor(v);
+    const fromStatus: LearningStatusTab = selectedStatus;
+    const fromPath = `/my-learnings?status=${fromStatus}`;
     if (action.path.startsWith("/watch/")) {
-      nav(action.path, { state: { videoTitle: v.videoTitle } });
+      nav(action.path, { state: { videoTitle: v.videoTitle, fromStatus, fromPath } });
       return;
     }
     if (action.path.startsWith("/analyze/")) {
-      nav(action.path, { state: { videoId: v.videoId, videoTitle: v.videoTitle } });
+      nav(action.path, { state: { videoId: v.videoId, videoTitle: v.videoTitle, fromStatus, fromPath } });
       return;
     }
     if (action.path.startsWith("/quiz/")) {
@@ -432,11 +514,13 @@ export function MyLearningsPage() {
           sessionId: v.sessionId,
           videoId: v.videoId,
           videoTitle: v.videoTitle,
+          fromStatus,
+          fromPath,
         },
       });
       return;
     }
-    nav(action.path);
+    nav(action.path, { state: { fromStatus, fromPath } });
   };
 
   const requestDeleteSession = (sessionId: string) => {
@@ -465,10 +549,36 @@ export function MyLearningsPage() {
     };
   }, [hasOpenModal]);
 
+  useEffect(() => {
+    const current = searchParams.get("status");
+    if (current === selectedStatus) return;
+    const next = new URLSearchParams(searchParams);
+    next.set("status", selectedStatus);
+    setSearchParams(next, { replace: true });
+  }, [selectedStatus, searchParams, setSearchParams]);
+
   return (
     <div className="ct-slide-up">
       <h1 className="ct-page-title">My Learnings</h1>
       <p className="ct-page-subtitle">Track learning progress, scores, and rewatch attempts by status.</p>
+      {resumeContext && (
+        <div className="ct-card" style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 4 }}>Paused video session</div>
+            <div style={{ fontSize: 13, color: "var(--ct-text-secondary)" }}>
+              {resumeContext.videoTitle || "Resume your active watch session whenever you are ready."}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button className="ct-btn ct-btn-primary ct-btn-sm" onClick={continueResumeContext}>
+              Continue
+            </button>
+            <button className="ct-btn ct-btn-secondary ct-btn-sm" onClick={closeResumeContext}>
+              Close Session
+            </button>
+          </div>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="ct-loading"><div className="ct-spinner" /><span>Loading statuses...</span></div>

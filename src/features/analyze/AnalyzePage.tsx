@@ -8,9 +8,13 @@ import { analyzeSession } from "../../api/sessions";
 import { queryClient } from "../../app/queryClient";
 import type { AnalyzeResponse } from "../../types/api";
 
+import "./analyze.css";
+
 type AnalyzeLocationState = {
   videoId?: string;
   videoTitle?: string;
+  fromStatus?: "active" | "completed" | "quiz";
+  fromPath?: string;
 };
 
 export function AnalyzePage() {
@@ -18,44 +22,65 @@ export function AnalyzePage() {
   const nav = useNavigate();
   const location = useLocation();
   const locState = (location.state || {}) as AnalyzeLocationState;
+  const fromStatus = locState.fromStatus === "active" || locState.fromStatus === "completed" || locState.fromStatus === "quiz"
+    ? locState.fromStatus
+    : "completed";
+  const fromPath = (locState.fromPath || `/my-learnings?status=${fromStatus}`).trim();
 
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
   const [loading, setLoading] = useState(false);
-  const [model, setModel] = useState<"xgboost" | "ebm">("xgboost");
 
   const runAnalyze = useCallback(async () => {
     if (!sessionId) return;
     setLoading(true);
     try {
-      const res = await analyzeSession(sessionId, model);
+      const res = await analyzeSession(sessionId, "xgboost");
       setResult(res);
       await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       if (res.status === "ENGAGED") {
         toast.success("Engagement passed");
       } else {
-        toast.error("Not engaged yet. Watch again.");
+        toast.error("Engagement threshold not met");
       }
     } catch (e: any) {
       toast.error(e?.message || "Analysis failed");
     } finally {
       setLoading(false);
     }
-  }, [model, sessionId]);
+  }, [sessionId]);
 
   if (!sessionId) return <div className="ct-empty">Missing analysis context</div>;
 
   const engaged = result?.status === "ENGAGED";
-  const notEngaged = result?.status === "NOT_ENGAGED";
+  const hasResult = Boolean(result);
   const scorePct = result ? result.engagementScore * 100 : 0;
   const scoreText = useMemo(() => `${scorePct.toFixed(0)}%`, [scorePct]);
-  const title = locState.videoTitle?.trim() || "Video Engagement";
-  const goMyLearnings = () => nav("/my-learnings");
+  const title = locState.videoTitle?.trim() || "Video Session";
+
+  const goMyLearnings = () => nav(fromPath, { state: { initialStatus: fromStatus } });
   const goWatchAgain = () => {
     if (locState.videoId) {
-      nav(`/watch/${locState.videoId}`, { state: { videoTitle: locState.videoTitle } });
+      nav(`/watch/${locState.videoId}`, {
+        state: {
+          videoTitle: locState.videoTitle,
+          fromStatus,
+          fromPath,
+        },
+      });
       return;
     }
-    nav("/my-learnings");
+    nav(fromPath, { state: { initialStatus: fromStatus } });
+  };
+  const goQuiz = () => {
+    nav(`/quiz/${sessionId}`, {
+      state: {
+        sessionId,
+        videoId: locState.videoId,
+        videoTitle: locState.videoTitle,
+        fromStatus,
+        fromPath,
+      },
+    });
   };
 
   return (
@@ -72,88 +97,57 @@ export function AnalyzePage() {
       <h1 className="ct-page-title">Engagement Analysis</h1>
       <p className="ct-page-subtitle">{title}</p>
 
-      <div className="ct-card" style={{ marginBottom: 16 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <label className="ct-form-label" style={{ margin: 0 }}>Model</label>
-            <select className="ct-select" value={model} onChange={(e) => setModel(e.target.value as "xgboost" | "ebm")} disabled={loading}>
-              <option value="xgboost">XGBoost</option>
-              <option value="ebm">EBM</option>
-            </select>
-          </div>
-          <button className="ct-btn ct-btn-primary" onClick={runAnalyze} disabled={loading} id="analyze-submit">
+      <div className="ct-card ct-analyze-compact-card">
+        <p className="ct-analyze-compact-title">Dual Verification</p>
+        <p className="ct-analyze-compact-text">
+          Pass engagement analysis first, then pass quiz to get certificate eligibility.
+        </p>
+        <div className="ct-analyze-compact-cta">
+          <button className="ct-btn ct-btn-primary ct-btn-lg" onClick={runAnalyze} disabled={loading} id="analyze-submit">
             <BarChart3 size={16} />
-            {loading ? "Getting score..." : "Get Engagement Score"}
+            {loading ? "Getting Score..." : "Get Engagement Score"}
           </button>
         </div>
-        <p style={{ marginTop: 10, fontSize: 12.5, color: "var(--ct-text-muted)" }}>
-          Select a model, then run analysis for this completed session.
-        </p>
       </div>
 
-      {result && engaged && (
-        <div className="ct-fade-in">
-          <div className="ct-card" style={{ marginBottom: 16 }}>
-            <p style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.45, color: "var(--ct-text-muted)", marginBottom: 6 }}>
-              Engagement Score
-            </p>
-            <div style={{ fontSize: 46, fontWeight: 800, color: engaged ? "var(--ct-success)" : "var(--ct-error)", lineHeight: 1 }}>
-              {scoreText}
-            </div>
-            <p style={{ marginTop: 8, fontSize: 13, color: "var(--ct-text-secondary)" }}>
-              Required {(result.threshold * 100).toFixed(0)}% | Model {result.model.toUpperCase()}
-            </p>
-            <p style={{ marginTop: 10, fontSize: 13, color: engaged ? "var(--ct-success)" : "var(--ct-error)", fontWeight: 700 }}>
-              {engaged ? "ENGAGED" : "NOT ENGAGED"}
-            </p>
-
-            <h3 style={{ marginTop: 14, marginBottom: 6, fontSize: 15, fontWeight: 700 }}>Explanation</h3>
-            <p style={{ fontSize: 14, color: "var(--ct-text-secondary)", lineHeight: 1.65 }}>
-              {result.explanation}
-            </p>
-          </div>
-
-          <div style={{ display: "flex", justifyContent: "center", gap: 10, flexWrap: "wrap" }}>
-            <button
-              className="ct-btn ct-btn-primary ct-btn-lg"
-              onClick={() => nav(`/quiz/${sessionId}`, {
-                state: {
-                  sessionId,
-                  videoId: locState.videoId,
-                  videoTitle: locState.videoTitle,
-                },
-              })}
-              id="take-quiz-btn"
-            >
-              <ClipboardCheck size={18} /> Take Quiz
-            </button>
-          </div>
-        </div>
-      )}
-
-      {notEngaged && createPortal(
-        <div className="ct-modal-backdrop" onClick={goMyLearnings}>
-          <div className="ct-modal-card ct-analyze-popup" onClick={(e) => e.stopPropagation()}>
-            <div className="ct-analyze-popup-top">
-              <div>
-                <p className="ct-analyze-popup-kicker">Engagement Score</p>
-                <div className="ct-analyze-popup-score">{scoreText}</div>
-              </div>
-              <button className="ct-analyze-popup-close" onClick={goMyLearnings} aria-label="Close popup">
+      {hasResult && createPortal(
+        <div className="ct-modal-backdrop ct-analyze-compact-backdrop" onClick={goMyLearnings}>
+          <div className="ct-analyze-compact-popup" onClick={(e) => e.stopPropagation()}>
+            <div className="ct-analyze-compact-popup-head">
+              <p className="ct-analyze-compact-kicker">Engagement Score</p>
+              <button className="ct-analyze-compact-close" onClick={goMyLearnings} aria-label="Close popup">
                 <X size={16} />
               </button>
             </div>
-            <p className="ct-analyze-popup-status">NOT ENGAGED</p>
-            <p className="ct-analyze-popup-text">
-              {result?.explanation}
+
+            <div className="ct-analyze-compact-score-wrap">
+              <div className={`ct-analyze-compact-score ${engaged ? "good" : "bad"}`}>{scoreText}</div>
+              <p className="ct-analyze-compact-meta">
+                Required {((result?.threshold || 0) * 100).toFixed(0)}% | Model {result?.model?.toUpperCase()}
+              </p>
+            </div>
+            <p className={`ct-analyze-compact-status ${engaged ? "good" : "bad"}`}>
+              {engaged ? "Step 1 Passed" : "Step 1 Not Passed"}
             </p>
-            <div className="ct-modal-actions">
+            <p className="ct-analyze-compact-popup-text">
+              {engaged
+                ? "You can now continue to quiz for the second verification step."
+                : "Please watch again and retry analysis to pass the first step."}
+            </p>
+
+            <div className="ct-modal-actions ct-analyze-compact-actions">
               <button className="ct-btn ct-btn-secondary" onClick={goMyLearnings}>
                 Close
               </button>
-              <button className="ct-btn ct-btn-primary" onClick={goWatchAgain} id="watch-again-btn">
-                <RotateCcw size={16} /> Watch Again
-              </button>
+              {engaged ? (
+                <button className="ct-btn ct-btn-primary" onClick={goQuiz} id="take-quiz-btn">
+                  <ClipboardCheck size={16} /> Continue to Quiz
+                </button>
+              ) : (
+                <button className="ct-btn ct-btn-primary" onClick={goWatchAgain} id="watch-again-btn">
+                  <RotateCcw size={16} /> Watch Again
+                </button>
+              )}
             </div>
           </div>
         </div>,
