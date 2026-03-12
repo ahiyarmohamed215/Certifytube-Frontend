@@ -1,20 +1,45 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Award, CheckCircle, Download, Share2, XCircle } from "lucide-react";
+import { ArrowLeft, Award, CheckCircle, Download, RotateCcw, Share2, X, XCircle } from "lucide-react";
 import toast from "react-hot-toast";
 
 import { downloadCertificatePdf } from "../../api/certificate";
-import { getQuiz, getQuizResult } from "../../api/quiz";
-import type { QuizQuestion, QuizReviewItem, QuizSubmitResponse } from "../../types/quiz";
+import { getQuiz, getQuizEligibility, getQuizResult } from "../../api/quiz";
+import type { QuizEligibility, QuizGenerateResponse, QuizQuestion, QuizReviewItem, QuizSubmitResponse } from "../../types/quiz";
 
 type ResultLocationState = {
   result?: QuizSubmitResponse;
   quizQuestions?: QuizQuestion[];
   submittedAnswers?: Record<string, string>;
   submitError?: string;
+  sessionId?: string;
+  videoId?: string;
+  videoTitle?: string;
   fromStatus?: "active" | "completed" | "quiz";
   fromPath?: string;
 };
+
+const QUIZ_ATTEMPT_TRACKER_STORAGE_KEY = "ct_quiz_attempt_tracker_v1";
+const QUIZ_DEFAULT_MAX_ATTEMPTS = 2;
+
+function getConsumedQuizAttempts(sessionId: string | null): number {
+  if (!sessionId) return 0;
+  try {
+    const raw = localStorage.getItem(QUIZ_ATTEMPT_TRACKER_STORAGE_KEY);
+    if (!raw) return 0;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const entry = parsed?.[sessionId];
+    if (typeof entry === "number" && Number.isFinite(entry)) {
+      return Math.max(0, Math.floor(entry));
+    }
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return 0;
+    const consumed = (entry as { consumed?: unknown }).consumed;
+    if (!Number.isFinite(consumed as number)) return 0;
+    return Math.max(0, Math.floor(consumed as number));
+  } catch {
+    return 0;
+  }
+}
 
 type ReviewRow = {
   questionId: string;
@@ -185,6 +210,35 @@ function buildReviewRows(
     }));
   }
 
+  if (quizQuestions.length > 0) {
+    const fallbackRows = quizQuestions.map((q, idx) => {
+      const id = questionKey(q, idx);
+      const your =
+        asText(mergedAnswers[id])
+        || asText(mergedAnswers[asText(q.questionId)])
+        || asText(mergedAnswers[`q${idx + 1}`]);
+      const correct = asText(q.correctAnswer) || asText(q.answer);
+
+      let isCorrect: boolean | null = null;
+      if (your && correct) {
+        isCorrect = answerNorm(your) === answerNorm(correct);
+      }
+
+      return {
+        questionId: id,
+        questionText: asText(q.questionText) || `Question ${idx + 1}`,
+        yourAnswer: your,
+        correctAnswer: correct || null,
+        isCorrect,
+        explanation: asText(q.explanation) || null,
+      };
+    }).filter((row) => row.yourAnswer || row.correctAnswer);
+
+    if (fallbackRows.length > 0) {
+      return fallbackRows;
+    }
+  }
+
   return [];
 }
 
@@ -202,6 +256,16 @@ export function ResultPage() {
   const [result, setResult] = useState<QuizSubmitResponse | null>(stateResult || null);
   const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>(locationState?.quizQuestions || []);
   const [submittedAnswers, setSubmittedAnswers] = useState<Record<string, string>>(locationState?.submittedAnswers || {});
+  const [quizMeta, setQuizMeta] = useState<Pick<QuizGenerateResponse, "sessionId" | "videoId" | "videoTitle"> | null>(
+    locationState?.sessionId
+      ? {
+        sessionId: locationState.sessionId,
+        videoId: locationState.videoId || "",
+        videoTitle: locationState.videoTitle || "",
+      }
+      : null,
+  );
+  const [eligibility, setEligibility] = useState<QuizEligibility | null>(null);
   const submitError = locationState?.submitError || "";
 
   const [loading, setLoading] = useState(!stateResult);
@@ -231,7 +295,7 @@ export function ResultPage() {
   }, [quizId, stateResult]);
 
   useEffect(() => {
-    if (!quizId || quizQuestions.length > 0) return;
+    if (!quizId || (quizQuestions.length > 0 && quizMeta?.sessionId)) return;
 
     let cancelled = false;
     (async () => {
@@ -239,6 +303,11 @@ export function ResultPage() {
         const q = await getQuiz(quizId);
         if (cancelled) return;
         setQuizQuestions(q.questions || []);
+        setQuizMeta({
+          sessionId: q.sessionId,
+          videoId: q.videoId,
+          videoTitle: q.videoTitle,
+        });
       } catch {
         // quiz detail not critical for result header
       }
@@ -247,7 +316,7 @@ export function ResultPage() {
     return () => {
       cancelled = true;
     };
-  }, [quizId, quizQuestions.length]);
+  }, [quizId, quizMeta?.sessionId, quizQuestions.length]);
 
   useEffect(() => {
     if (Object.keys(submittedAnswers).length > 0 || !result) return;
@@ -267,6 +336,26 @@ export function ResultPage() {
     }, 1200);
     return () => window.clearTimeout(timer);
   }, [quizId, result?.passed, result?.certificateId]);
+
+  useEffect(() => {
+    if (!quizMeta?.sessionId || !result || result.passed) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await getQuizEligibility(quizMeta.sessionId);
+        if (cancelled) return;
+        setEligibility(res);
+      } catch {
+        if (cancelled) return;
+        setEligibility(null);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [quizMeta?.sessionId, result, result?.passed]);
 
   const explanation = useMemo(() => {
     const raw: any = result;
@@ -292,6 +381,22 @@ export function ResultPage() {
   const canShowWrongRows = useMemo(
     () => wrongRows.length > 0,
     [wrongRows],
+  );
+
+  const consumedAttemptsUsed = useMemo(
+    () => getConsumedQuizAttempts(quizMeta?.sessionId || null),
+    [quizMeta?.sessionId],
+  );
+
+  const maxFailedAttempts = eligibility?.maxFailedAttempts || QUIZ_DEFAULT_MAX_ATTEMPTS;
+  const backendRemainingAttempts = useMemo(() => {
+    if (!eligibility) return maxFailedAttempts;
+    if (typeof eligibility.remainingAttempts === "number") return Math.max(0, eligibility.remainingAttempts);
+    return Math.max(0, maxFailedAttempts - (eligibility.failedAttemptsUsed || 0));
+  }, [eligibility, maxFailedAttempts]);
+  const remainingQuizAttempts = Math.max(
+    0,
+    Math.min(backendRemainingAttempts, maxFailedAttempts - consumedAttemptsUsed),
   );
 
   const refreshResultOnce = async (): Promise<QuizSubmitResponse | null> => {
@@ -369,6 +474,47 @@ export function ResultPage() {
     toast.success("Verification link copied");
   };
 
+  const goMyLearnings = () => nav(fromPath, { state: { initialStatus: fromStatus } });
+
+  const goBack = () => {
+    if (window.history.length > 1) {
+      nav(-1);
+      return;
+    }
+    goMyLearnings();
+  };
+
+  const handleRetryQuiz = () => {
+    if (!quizMeta?.sessionId) {
+      toast.error("Quiz session not found");
+      return;
+    }
+
+    nav(`/quiz/${quizMeta.sessionId}`, {
+      state: {
+        sessionId: quizMeta.sessionId,
+        videoId: quizMeta.videoId,
+        videoTitle: quizMeta.videoTitle,
+        fromStatus,
+        fromPath,
+      },
+    });
+  };
+
+  const handleWatchAgain = () => {
+    if (!quizMeta?.videoId) {
+      goMyLearnings();
+      return;
+    }
+    nav(`/watch/${quizMeta.videoId}`, {
+      state: {
+        videoTitle: quizMeta.videoTitle,
+        fromStatus,
+        fromPath,
+      },
+    });
+  };
+
   if (loading) {
     return (
       <div className="ct-loading" style={{ minHeight: 300 }}>
@@ -382,6 +528,15 @@ export function ResultPage() {
 
   return (
     <div className="ct-slide-up" style={{ maxWidth: 900, margin: "0 auto" }}>
+      <div className="ct-analyze-topbar">
+        <button className="ct-btn ct-btn-secondary ct-btn-sm ct-analyze-back-btn" onClick={goBack}>
+          <ArrowLeft size={14} /> Back
+        </button>
+        <button className="ct-btn ct-btn-sm ct-analyze-close-btn" onClick={goMyLearnings}>
+          <X size={14} /> Close
+        </button>
+      </div>
+
       <div className="ct-glass-card" style={{ marginBottom: 18, textAlign: "center" }}>
         {result.passed ? (
           <>
@@ -438,6 +593,12 @@ export function ResultPage() {
       </div>
 
       {!result.passed && (
+        <div className="ct-banner ct-banner-info" style={{ marginBottom: 18 }}>
+          Remaining quiz attempts: {remainingQuizAttempts} / {maxFailedAttempts}
+        </div>
+      )}
+
+      {!result.passed && (
         <div className="ct-card" style={{ marginBottom: 18 }}>
           <h2 className="ct-section-title" style={{ fontSize: 18, marginBottom: 10 }}>Incorrect Questions</h2>
 
@@ -474,13 +635,25 @@ export function ResultPage() {
             </div>
           ) : (
             <div className="ct-banner ct-banner-warning">
-              Backend did not return question-level wrong-answer details for this result.
+              Detailed question-level review is unavailable for this attempt.
             </div>
           )}
         </div>
       )}
 
       <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
+        {!result.passed && remainingQuizAttempts > 0 && (
+          <button className="ct-btn ct-btn-primary" onClick={handleRetryQuiz} id="retry-quiz-btn">
+            <RotateCcw size={16} /> Re-Take Quiz
+          </button>
+        )}
+
+        {!result.passed && remainingQuizAttempts <= 0 && (
+          <button className="ct-btn ct-btn-secondary" onClick={handleWatchAgain} id="watch-again-btn">
+            <RotateCcw size={16} /> Watch Again
+          </button>
+        )}
+
         {result.passed && (
           <button
             className="ct-btn ct-btn-primary"
@@ -505,10 +678,6 @@ export function ResultPage() {
             <Share2 size={16} /> Copy Verification Link
           </button>
         )}
-
-        <button className="ct-btn ct-btn-ghost" onClick={() => nav(-1)}>
-          <ArrowLeft size={16} /> Go Back
-        </button>
       </div>
     </div>
   );

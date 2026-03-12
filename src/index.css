@@ -1014,6 +1014,45 @@ img {
   gap: 8px;
 }
 
+.ct-quiz-lock-modal {
+  max-width: 560px;
+  padding: 26px;
+  position: relative;
+}
+
+.ct-quiz-lock-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 10px;
+  color: #a16207;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.22);
+}
+
+.ct-quiz-lock-icon.danger {
+  color: #b91c1c;
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.22);
+}
+
+.ct-quiz-lock-title {
+  margin: 0 0 8px;
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--ct-text);
+}
+
+.ct-quiz-lock-text {
+  margin: 0 0 18px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--ct-text-secondary);
+}
+
 .ct-attempts-modal {
   max-width: 680px;
   padding: 26px;

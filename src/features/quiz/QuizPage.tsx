@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
-import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useBeforeUnload, useBlocker, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ClipboardCheck, RotateCcw, Send, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ClipboardCheck, RotateCcw, Send, X } from "lucide-react";
 import toast from "react-hot-toast";
 
 import { generateQuiz, getQuiz, getQuizEligibility, getQuizResult, submitQuiz } from "../../api/quiz";
@@ -16,6 +17,97 @@ type QuizLocationState = {
 };
 
 type NormalizedQuestionType = "mcq" | "true_false" | "fill_blank" | "short_answer";
+const QUIZ_NAVIGATION_ATTEMPT_LIMIT = 3;
+const QUIZ_ATTEMPT_TRACKER_STORAGE_KEY = "ct_quiz_attempt_tracker_v1";
+const QUIZ_DEFAULT_MAX_ATTEMPTS = 2;
+const QUIZ_PENDING_PATH = "/my-learnings?status=quiz";
+
+type QuizAttemptStore = Record<string, {
+  consumed: number;
+  quizIds: Record<string, true>;
+}>;
+type LockPopupTone = "warning" | "error";
+type LockPopupState = {
+  title: string;
+  message: string;
+  buttonText: string;
+  tone: LockPopupTone;
+  allowClose?: boolean;
+  closeText?: string;
+};
+
+function normalizeQuizAttemptEntry(raw: unknown): { consumed: number; quizIds: Record<string, true> } {
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return { consumed: Math.max(0, Math.floor(raw)), quizIds: {} };
+  }
+
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { consumed: 0, quizIds: {} };
+  }
+
+  const obj = raw as { consumed?: unknown; quizIds?: unknown };
+  const consumed = Number.isFinite(obj.consumed as number)
+    ? Math.max(0, Math.floor(obj.consumed as number))
+    : 0;
+  const quizIds: Record<string, true> = {};
+  if (obj.quizIds && typeof obj.quizIds === "object" && !Array.isArray(obj.quizIds)) {
+    for (const [quizId, flag] of Object.entries(obj.quizIds as Record<string, unknown>)) {
+      if (!quizId || !flag) continue;
+      quizIds[quizId] = true;
+    }
+  }
+
+  return { consumed, quizIds };
+}
+
+function readQuizAttemptStore(): QuizAttemptStore {
+  if (typeof window === "undefined") return {};
+
+  try {
+    const raw = window.localStorage.getItem(QUIZ_ATTEMPT_TRACKER_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const normalized: QuizAttemptStore = {};
+    for (const [sessionId, entry] of Object.entries(parsed)) {
+      if (!sessionId) continue;
+      normalized[sessionId] = normalizeQuizAttemptEntry(entry);
+    }
+    return normalized;
+  } catch {
+    return {};
+  }
+}
+
+function writeQuizAttemptStore(store: QuizAttemptStore) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(QUIZ_ATTEMPT_TRACKER_STORAGE_KEY, JSON.stringify(store));
+  } catch {
+    // noop
+  }
+}
+
+function getConsumedQuizAttempts(sessionId: string | null | undefined): number {
+  if (!sessionId) return 0;
+  const store = readQuizAttemptStore();
+  const entry = store[sessionId];
+  return entry?.consumed || 0;
+}
+
+function markQuizAttemptConsumed(sessionId: string, quizAttemptId: string): number {
+  const store = readQuizAttemptStore();
+  const entry = store[sessionId] || { consumed: 0, quizIds: {} };
+  if (entry.quizIds[quizAttemptId]) {
+    return entry.consumed;
+  }
+
+  entry.quizIds[quizAttemptId] = true;
+  entry.consumed += 1;
+  store[sessionId] = entry;
+  writeQuizAttemptStore(store);
+  return entry.consumed;
+}
 
 function normalizeQuestionType(q: QuizQuestion): NormalizedQuestionType {
   const normalized = String(q.questionType || "")
@@ -72,16 +164,43 @@ export function QuizPage() {
     ? locationState.fromStatus
     : "quiz";
   const fromPath = (locationState?.fromPath || `/my-learnings?status=${fromStatus}`).trim();
+  const initialSessionId = sessionIdFromState ?? quizId ?? null;
 
   const [quiz, setQuiz] = useState<QuizGenerateResponse | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [generating, setGenerating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [needsGenerate, setNeedsGenerate] = useState(false);
-  const [sessionIdForGenerate, setSessionIdForGenerate] = useState<string | null>(sessionIdFromState ?? null);
+  const [sessionIdForGenerate, setSessionIdForGenerate] = useState<string | null>(initialSessionId);
   const [eligibility, setEligibility] = useState<QuizEligibility | null>(null);
   const [eligibilityLoading, setEligibilityLoading] = useState(false);
   const [activeQuestionIndex, setActiveQuestionIndex] = useState(0);
+  const [quizLockEnabled, setQuizLockEnabled] = useState(true);
+  const [consumedAttemptsUsed, setConsumedAttemptsUsed] = useState(0);
+  const [lockPopup, setLockPopup] = useState<LockPopupState | null>(null);
+  const violationCountRef = useRef(0);
+  const quizLockEnabledRef = useRef(true);
+  const forceClosingRef = useRef(false);
+  const lastViolationAtRef = useRef(0);
+  const lockPopupActionRef = useRef<(() => void) | null>(null);
+  const currentSessionId = quiz?.sessionId || sessionIdForGenerate || sessionIdFromState || null;
+
+  const showLockPopup = useCallback((popup: LockPopupState, onOk?: () => void) => {
+    lockPopupActionRef.current = onOk || null;
+    setLockPopup(popup);
+  }, []);
+
+  const closeLockPopup = useCallback(() => {
+    lockPopupActionRef.current = null;
+    setLockPopup(null);
+  }, []);
+
+  const acknowledgeLockPopup = useCallback(() => {
+    const action = lockPopupActionRef.current;
+    lockPopupActionRef.current = null;
+    setLockPopup(null);
+    action?.();
+  }, []);
 
   useEffect(() => {
     if (!quizId) {
@@ -103,6 +222,8 @@ export function QuizPage() {
       try {
         const q = await getQuiz(quizId);
         if (cancelled) return;
+        const consumed = markQuizAttemptConsumed(q.sessionId, q.quizId);
+        setConsumedAttemptsUsed(consumed);
         setQuiz(q);
         setSessionIdForGenerate(q.sessionId);
         setNeedsGenerate(false);
@@ -147,7 +268,45 @@ export function QuizPage() {
     };
   }, [needsGenerate, quiz, sessionIdForGenerate]);
 
+  useEffect(() => {
+    if (!currentSessionId) {
+      setConsumedAttemptsUsed(0);
+      return;
+    }
+    setConsumedAttemptsUsed(getConsumedQuizAttempts(currentSessionId));
+  }, [currentSessionId]);
+
+  const generateQuizAfterConfirmation = useCallback(async (sid: string) => {
+    setGenerating(true);
+    try {
+      const q = await generateQuiz({ sessionId: sid });
+      const consumed = markQuizAttemptConsumed(q.sessionId, q.quizId);
+      setConsumedAttemptsUsed(consumed);
+      setQuiz(q);
+      setAnswers({});
+      setActiveQuestionIndex(0);
+      setNeedsGenerate(false);
+      setSessionIdForGenerate(q.sessionId);
+      toast.success("Quiz generated. One quiz attempt is now used.");
+      nav(`/quiz/${q.quizId}`, {
+        replace: true,
+        state: {
+          sessionId: q.sessionId,
+          videoId: q.videoId,
+          videoTitle: q.videoTitle,
+          fromStatus,
+          fromPath,
+        },
+      });
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to generate quiz");
+    } finally {
+      setGenerating(false);
+    }
+  }, [fromPath, fromStatus, nav]);
+
   const handleGenerate = async () => {
+    if (generating) return;
     const sid = sessionIdForGenerate;
     if (!sid) {
       toast.error("Missing quiz context");
@@ -157,38 +316,57 @@ export function QuizPage() {
     try {
       const check = await getQuizEligibility(sid);
       setEligibility(check);
+      const consumed = getConsumedQuizAttempts(sid);
+      setConsumedAttemptsUsed(consumed);
+      const maxAllowed = check.maxFailedAttempts || QUIZ_DEFAULT_MAX_ATTEMPTS;
+      const backendRemaining = typeof check.remainingAttempts === "number"
+        ? Math.max(0, check.remainingAttempts)
+        : Math.max(0, maxAllowed - (check.failedAttemptsUsed || 0));
+      const effectiveRemaining = Math.max(0, Math.min(backendRemaining, maxAllowed - consumed));
+
       if (!check.eligible) {
         toast.error(check.reason || "Not eligible to generate quiz");
         return;
       }
+      if (effectiveRemaining <= 0) {
+        showLockPopup(
+          {
+            tone: "error",
+            title: "No quiz attempts left",
+            message: "All quiz attempts are already used. Watch the video again to unlock a new quiz attempt.",
+            buttonText: "Watch Again",
+          },
+          () => {
+            const fallbackVideoId = locationState?.videoId || quiz?.videoId || null;
+            if (fallbackVideoId) {
+              nav(`/watch/${fallbackVideoId}`, {
+                state: {
+                  videoTitle: locationState?.videoTitle || quiz?.videoTitle,
+                  fromStatus,
+                  fromPath: QUIZ_PENDING_PATH,
+                },
+              });
+              return;
+            }
+            nav(QUIZ_PENDING_PATH, { state: { initialStatus: "quiz" } });
+          },
+        );
+        return;
+      }
+
+      showLockPopup(
+        {
+          tone: "warning",
+          title: "Start Quiz Attempt",
+          message: "If you click OK, a quiz will be generated and 1 attempt will be used immediately, even if you close the quiz later.",
+          buttonText: "OK, Generate Quiz",
+          allowClose: true,
+          closeText: "Close",
+        },
+        () => { void generateQuizAfterConfirmation(sid); },
+      );
     } catch (e: any) {
       toast.error(e?.message || "Failed to check quiz eligibility");
-      return;
-    }
-
-    setGenerating(true);
-    try {
-      const q = await generateQuiz({ sessionId: sid });
-      setQuiz(q);
-      setAnswers({});
-      setActiveQuestionIndex(0);
-      setNeedsGenerate(false);
-      setSessionIdForGenerate(q.sessionId);
-      toast.success("Quiz generated");
-      nav(`/quiz/${q.quizId}`, {
-        replace: true,
-        state: {
-          sessionId: q.sessionId,
-          videoId: locationState?.videoId,
-          videoTitle: locationState?.videoTitle,
-          fromStatus,
-          fromPath,
-        },
-      });
-    } catch (e: any) {
-      toast.error(e?.message || "Failed to generate quiz");
-    } finally {
-      setGenerating(false);
     }
   };
 
@@ -209,6 +387,32 @@ export function QuizPage() {
     setActiveQuestionIndex(0);
   }, [quiz?.quizId]);
 
+  const maxFailedAttempts = eligibility?.maxFailedAttempts || QUIZ_DEFAULT_MAX_ATTEMPTS;
+  const backendRemainingAttempts = useMemo(() => {
+    if (!eligibility) return maxFailedAttempts;
+    if (typeof eligibility.remainingAttempts === "number") return Math.max(0, eligibility.remainingAttempts);
+    return Math.max(0, maxFailedAttempts - (eligibility.failedAttemptsUsed || 0));
+  }, [eligibility, maxFailedAttempts]);
+  const remainingQuizAttempts = Math.max(
+    0,
+    Math.min(backendRemainingAttempts, maxFailedAttempts - consumedAttemptsUsed),
+  );
+  const watchAgainVideoId = locationState?.videoId || quiz?.videoId || null;
+
+  useEffect(() => {
+    if (!quiz?.quizId) return;
+    quizLockEnabledRef.current = true;
+    setQuizLockEnabled(true);
+    violationCountRef.current = 0;
+    forceClosingRef.current = false;
+    showLockPopup({
+      tone: "warning",
+      title: "Quiz is locked while active",
+      message: `Do not open another page or browser tab while doing this quiz. Attempts left before this quiz is canceled: ${QUIZ_NAVIGATION_ATTEMPT_LIMIT}.`,
+      buttonText: "OK",
+    });
+  }, [quiz?.quizId, showLockPopup]);
+
   const totalQuestions = quiz?.questions.length || 0;
   const clampedQuestionIndex = totalQuestions > 0
     ? Math.min(activeQuestionIndex, totalQuestions - 1)
@@ -221,6 +425,196 @@ export function QuizPage() {
     : false;
   const hasPrevQuestion = clampedQuestionIndex > 0;
   const hasNextQuestion = clampedQuestionIndex < totalQuestions - 1;
+  const isQuizLockActive = Boolean(quiz && quizLockEnabled);
+
+  const updateQuizLockEnabled = useCallback((value: boolean) => {
+    quizLockEnabledRef.current = value;
+    setQuizLockEnabled(value);
+  }, []);
+
+  const resetToQuizPendingView = useCallback(() => {
+    updateQuizLockEnabled(false);
+    setQuiz(null);
+    setAnswers({});
+    setActiveQuestionIndex(0);
+    setNeedsGenerate(true);
+    setEligibility(null);
+    violationCountRef.current = 0;
+    lastViolationAtRef.current = 0;
+  }, [updateQuizLockEnabled]);
+
+  const forceCloseQuizDueToViolation = useCallback(async () => {
+    if (forceClosingRef.current) return;
+    forceClosingRef.current = true;
+
+    const sid = quiz?.sessionId || sessionIdForGenerate || sessionIdFromState || null;
+    const fallbackVideoId = locationState?.videoId || quiz?.videoId || null;
+    const fallbackVideoTitle = locationState?.videoTitle || quiz?.videoTitle;
+    resetToQuizPendingView();
+
+    if (!sid) {
+      showLockPopup(
+        {
+          tone: "error",
+          title: "Quiz closed",
+          message: "Quiz was closed due to repeated navigation attempts. This quiz attempt remains used.",
+          buttonText: "Go to Quiz Pending",
+        },
+        () => nav(QUIZ_PENDING_PATH, { replace: true, state: { initialStatus: "quiz" } }),
+      );
+      return;
+    }
+
+    const violationConsumeKey = `misuse:${quiz?.quizId || sid}`;
+    const consumed = markQuizAttemptConsumed(sid, violationConsumeKey);
+    setConsumedAttemptsUsed(consumed);
+
+    let effectiveRemainingAfterClose = Math.max(0, QUIZ_DEFAULT_MAX_ATTEMPTS - consumed);
+    try {
+      const latestEligibility = await getQuizEligibility(sid);
+      setEligibility(latestEligibility);
+      const maxAllowed = latestEligibility.maxFailedAttempts || QUIZ_DEFAULT_MAX_ATTEMPTS;
+      const backendRemaining = typeof latestEligibility.remainingAttempts === "number"
+        ? Math.max(0, latestEligibility.remainingAttempts)
+        : Math.max(0, maxAllowed - (latestEligibility.failedAttemptsUsed || 0));
+      effectiveRemainingAfterClose = Math.max(0, Math.min(backendRemaining, maxAllowed - consumed));
+    } catch {
+      // fallback keeps default remaining calculation
+    }
+
+    if (effectiveRemainingAfterClose <= 0) {
+      showLockPopup(
+        {
+          tone: "error",
+          title: "All quiz attempts used",
+          message: "Quiz closed after navigation misuse. No attempts left. Watch the video again to unlock a new quiz.",
+          buttonText: "Watch Again",
+        },
+        () => {
+          if (fallbackVideoId) {
+            nav(`/watch/${fallbackVideoId}`, {
+              replace: true,
+              state: {
+                videoTitle: fallbackVideoTitle,
+                fromStatus,
+                fromPath: QUIZ_PENDING_PATH,
+              },
+            });
+            return;
+          }
+          nav(QUIZ_PENDING_PATH, { replace: true, state: { initialStatus: "quiz" } });
+        },
+      );
+      return;
+    }
+
+    showLockPopup(
+      {
+        tone: "warning",
+        title: "Quiz closed",
+        message: `Quiz closed after navigation misuse. This attempt remains used. Remaining attempts: ${effectiveRemainingAfterClose}.`,
+        buttonText: "Go to Quiz Pending",
+      },
+      () => nav(QUIZ_PENDING_PATH, { replace: true, state: { initialStatus: "quiz" } }),
+    );
+  }, [
+    fromStatus,
+    locationState?.videoId,
+    locationState?.videoTitle,
+    nav,
+    quiz?.videoId,
+    quiz?.videoTitle,
+    quiz?.sessionId,
+    resetToQuizPendingView,
+    showLockPopup,
+    sessionIdForGenerate,
+    sessionIdFromState,
+  ]);
+
+  const registerViolation = useCallback(() => {
+    if (!isQuizLockActive) return;
+    const now = Date.now();
+    if (now - lastViolationAtRef.current < 300) return;
+    lastViolationAtRef.current = now;
+
+    const next = violationCountRef.current + 1;
+    violationCountRef.current = next;
+
+    const remaining = Math.max(0, QUIZ_NAVIGATION_ATTEMPT_LIMIT - next);
+    if (next >= QUIZ_NAVIGATION_ATTEMPT_LIMIT) {
+      void forceCloseQuizDueToViolation();
+      return;
+    }
+
+    showLockPopup({
+      tone: "warning",
+      title: "Quiz is locked while active",
+      message: `Navigation attempt detected. Stay in this quiz tab. Attempts left before quiz cancel: ${remaining}.`,
+      buttonText: "Stay in Quiz",
+    });
+  }, [forceCloseQuizDueToViolation, isQuizLockActive, showLockPopup]);
+
+  const blocker = useBlocker(() => Boolean(quiz) && quizLockEnabledRef.current);
+
+  useEffect(() => {
+    if (blocker.state !== "blocked") return;
+
+    blocker.reset();
+    registerViolation();
+  }, [blocker, registerViolation]);
+
+  useEffect(() => {
+    if (!isQuizLockActive) return undefined;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        registerViolation();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [isQuizLockActive, registerViolation]);
+
+  useEffect(() => {
+    if (!isQuizLockActive) return undefined;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase();
+      const isReload = key === "f5" || ((event.ctrlKey || event.metaKey) && key === "r");
+      const isCloseTab = (event.ctrlKey || event.metaKey) && key === "w";
+      const isHistoryNav = event.altKey && (key === "arrowleft" || key === "arrowright");
+      if (!isReload && !isCloseTab && !isHistoryNav) return;
+
+      event.preventDefault();
+      registerViolation();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isQuizLockActive, registerViolation]);
+
+  useBeforeUnload(
+    useCallback((event) => {
+      if (!isQuizLockActive) return;
+      registerViolation();
+      event.preventDefault();
+      event.returnValue = "";
+    }, [isQuizLockActive, registerViolation]),
+  );
+
+  useEffect(() => {
+    if (!lockPopup) return undefined;
+
+    const prevBodyOverflow = document.body.style.overflow;
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevBodyOverflow;
+      document.documentElement.style.overflow = prevHtmlOverflow;
+    };
+  }, [lockPopup]);
 
   const goPrevQuestion = () => {
     setActiveQuestionIndex((prev) => Math.max(0, prev - 1));
@@ -246,11 +640,15 @@ export function QuizPage() {
       } else {
         toast.error(`Failed: ${res.scorePercent.toFixed(0)}%`);
       }
+      updateQuizLockEnabled(false);
       nav(`/result/${quiz.quizId}`, {
         state: {
           result: res,
           quizQuestions: quiz.questions,
           submittedAnswers: answers,
+          sessionId: quiz.sessionId,
+          videoId: quiz.videoId,
+          videoTitle: quiz.videoTitle,
           fromStatus,
           fromPath,
         },
@@ -264,12 +662,16 @@ export function QuizPage() {
           const fallbackResult = await getQuizResult(quiz.quizId);
           await qc.invalidateQueries({ queryKey: ["dashboard"] });
           toast.error("Quiz submitted, but certificate PDF generation failed on server. You can retry certificate download.");
+          updateQuizLockEnabled(false);
           nav(`/result/${quiz.quizId}`, {
             state: {
               result: fallbackResult,
               quizQuestions: quiz.questions,
               submittedAnswers: answers,
               submitError: msg,
+              sessionId: quiz.sessionId,
+              videoId: quiz.videoId,
+              videoTitle: quiz.videoTitle,
               fromStatus,
               fromPath,
             },
@@ -291,10 +693,10 @@ export function QuizPage() {
   };
 
   const goWatchAgain = () => {
-    if (locationState?.videoId) {
-      nav(`/watch/${locationState.videoId}`, {
+    if (watchAgainVideoId) {
+      nav(`/watch/${watchAgainVideoId}`, {
         state: {
-          videoTitle: locationState.videoTitle,
+          videoTitle: locationState?.videoTitle || quiz?.videoTitle,
           fromStatus,
           fromPath,
         },
@@ -303,14 +705,44 @@ export function QuizPage() {
     }
     nav(fromPath, { state: { initialStatus: fromStatus } });
   };
-  const goMyLearnings = () => nav(fromPath, { state: { initialStatus: fromStatus } });
+  const closeActiveQuizFromUi = () => {
+    if (!quiz || !isQuizLockActive) return false;
+    showLockPopup(
+      {
+        tone: "warning",
+        title: "Close Quiz?",
+        message: "Closing now will end this quiz and consume one more attempt.",
+        buttonText: "Close Quiz",
+        allowClose: true,
+        closeText: "Keep Quiz",
+      },
+      () => {
+        const consumed = markQuizAttemptConsumed(quiz.sessionId, `close:${quiz.quizId}`);
+        setConsumedAttemptsUsed(consumed);
+        resetToQuizPendingView();
+        nav(QUIZ_PENDING_PATH, { replace: true, state: { initialStatus: "quiz" } });
+      },
+    );
+    return true;
+  };
+
+  const goMyLearnings = () => {
+    if (closeActiveQuizFromUi()) return;
+    nav(fromPath, { state: { initialStatus: fromStatus } });
+  };
+
   const goBack = () => {
+    if (closeActiveQuizFromUi()) return;
     if (locationState?.fromPath || locationState?.fromStatus) {
       goMyLearnings();
       return;
     }
     nav(-1);
   };
+  const attemptsExhausted = !eligibilityLoading && Boolean(eligibility?.eligible) && remainingQuizAttempts <= 0;
+  const generateDisabled = generating
+    || eligibilityLoading
+    || (eligibility ? (!eligibility.eligible || attemptsExhausted) : true);
 
   if (!quizId) return <div className="ct-empty">Missing quiz context</div>;
 
@@ -363,14 +795,26 @@ export function QuizPage() {
 
           {!eligibilityLoading && eligibility?.eligible && (
             <p style={{ marginBottom: 16, fontSize: 13, color: "var(--ct-text-muted)" }}>
-              Attempts remaining: {eligibility.remainingAttempts}
+              Attempts remaining: {remainingQuizAttempts} / {maxFailedAttempts}
             </p>
+          )}
+
+          {attemptsExhausted && (
+            <div className="ct-banner ct-banner-error" style={{ marginBottom: 12, textAlign: "left" }}>
+              All quiz attempts are used. Watch the video again to unlock a new quiz.
+            </div>
+          )}
+
+          {attemptsExhausted && (
+            <button className="ct-btn ct-btn-secondary" onClick={goWatchAgain} style={{ marginBottom: 16 }}>
+              Watch Again
+            </button>
           )}
 
           <button
             className="ct-btn ct-btn-primary ct-btn-lg"
             onClick={handleGenerate}
-            disabled={generating || eligibilityLoading || (eligibility ? !eligibility.eligible : true)}
+            disabled={generateDisabled}
             id="generate-quiz-btn"
           >
             {generating ? "Generating..." : "Generate Quiz"}
@@ -525,6 +969,49 @@ export function QuizPage() {
             </p>
           )}
         </div>
+      )}
+
+      {lockPopup && createPortal(
+        <div className="ct-modal-backdrop">
+          <div
+            className={`ct-modal-card ct-quiz-lock-modal ${lockPopup.tone === "error" ? "danger" : ""}`}
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={lockPopup.title}
+          >
+            {lockPopup.allowClose && (
+              <button
+                type="button"
+                className="ct-attempts-modal-close"
+                onClick={closeLockPopup}
+                aria-label="Close popup"
+                style={{ position: "absolute", top: 12, right: 12 }}
+              >
+                <X size={16} />
+              </button>
+            )}
+            <div className={`ct-quiz-lock-icon ${lockPopup.tone === "error" ? "danger" : ""}`}>
+              <AlertTriangle size={20} />
+            </div>
+            <h3 className="ct-quiz-lock-title">{lockPopup.title}</h3>
+            <p className="ct-quiz-lock-text">{lockPopup.message}</p>
+            <div className="ct-modal-actions">
+              <button
+                className={lockPopup.tone === "error" ? "ct-btn ct-btn-danger" : "ct-btn ct-btn-primary"}
+                onClick={acknowledgeLockPopup}
+              >
+                {lockPopup.buttonText}
+              </button>
+              {lockPopup.allowClose && (
+                <button className="ct-btn ct-btn-secondary" onClick={closeLockPopup}>
+                  {lockPopup.closeText || "Close"}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
