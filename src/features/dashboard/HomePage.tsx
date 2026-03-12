@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { Play, BarChart3, ClipboardCheck, Award, BookOpen, Clock, RotateCcw, Sparkles, Trash2, AlertTriangle } from "lucide-react";
+import { Play, BarChart3, ClipboardCheck, Award, BookOpen, Clock, RotateCcw, Sparkles, Trash2, AlertTriangle, Menu } from "lucide-react";
 import toast from "react-hot-toast";
 
 import { getDashboard } from "../../api/dashboard";
@@ -19,6 +19,12 @@ type VideoInsight = {
 };
 
 type StemFilter = "all" | "stem" | "nonstem";
+
+function applyStemFilter(videos: DashboardVideo[], filter: StemFilter) {
+  if (filter === "stem") return videos.filter((v) => v.stemEligible);
+  if (filter === "nonstem") return videos.filter((v) => !v.stemEligible);
+  return videos;
+}
 
 function sortByCreatedDesc(videos: DashboardVideo[]) {
   return [...videos].sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0));
@@ -309,9 +315,15 @@ export function MyLearningsPage() {
   const [attemptsVideoId, setAttemptsVideoId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DashboardVideo | null>(null);
   const [selectedStatus, setSelectedStatus] = useState<"active" | "completed" | "quiz">("active");
-  const [activeStemFilter, setActiveStemFilter] = useState<StemFilter>("all");
-  const [completedStemFilter, setCompletedStemFilter] = useState<StemFilter>("all");
+  const [stemFilter, setStemFilter] = useState<StemFilter>("all");
   const hasOpenModal = Boolean(deleteTarget || attemptsVideoId);
+
+  const toggleStemFilter = (next: StemFilter) => {
+    setStemFilter((prev) => {
+      if (next === "all") return "all";
+      return prev === next ? "all" : next;
+    });
+  };
 
   const { data, isLoading } = useQuery({
     queryKey: ["dashboard", "all-statuses"],
@@ -358,52 +370,47 @@ export function MyLearningsPage() {
   }, [absoluteLatest]);
 
   const activeVideos = useMemo(() => {
-    return absoluteLatest.filter((v) => v.stemEligible && v.status === "ACTIVE");
-  }, [absoluteLatest]);
-
-  const activeNonStemVideos = useMemo(() => {
-    return absoluteLatest.filter((v) => !v.stemEligible && v.status === "ACTIVE");
+    return absoluteLatest.filter((v) => v.status === "ACTIVE");
   }, [absoluteLatest]);
 
   const completedVideos = useMemo(() => {
     return absoluteLatest.filter((v) => {
-      if (!v.stemEligible) return false;
-      if (v.status === "COMPLETED" && (v.engagementScore == null || v.engagementScore < ENGAGEMENT_THRESHOLD)) return true;
+      if (!v.stemEligible && v.status === "COMPLETED") return true;
+      if (v.stemEligible && v.status === "COMPLETED" && (v.engagementScore == null || v.engagementScore < ENGAGEMENT_THRESHOLD)) return true;
       return false;
     });
   }, [absoluteLatest]);
 
-  const completedNonStemVideos = useMemo(() => {
-    return absoluteLatest.filter((v) => !v.stemEligible && v.status === "COMPLETED");
-  }, [absoluteLatest]);
-  const activeFilteredVideos = useMemo(() => {
-    if (activeStemFilter === "stem") return activeVideos;
-    if (activeStemFilter === "nonstem") return activeNonStemVideos;
-    return sortByCreatedDesc([...activeVideos, ...activeNonStemVideos]);
-  }, [activeStemFilter, activeVideos, activeNonStemVideos]);
-  const completedFilteredVideos = useMemo(() => {
-    if (completedStemFilter === "stem") return completedVideos;
-    if (completedStemFilter === "nonstem") return completedNonStemVideos;
-    return sortByCreatedDesc([...completedVideos, ...completedNonStemVideos]);
-  }, [completedStemFilter, completedVideos, completedNonStemVideos]);
+  const activeFilteredVideos = useMemo(
+    () => applyStemFilter(activeVideos, stemFilter),
+    [activeVideos, stemFilter],
+  );
+  const completedFilteredVideos = useMemo(
+    () => applyStemFilter(completedVideos, stemFilter),
+    [completedVideos, stemFilter],
+  );
+  const quizPendingFilteredVideos = useMemo(
+    () => applyStemFilter(quizPendingVideos, stemFilter),
+    [quizPendingVideos, stemFilter],
+  );
 
   const sideNavItems = [
     {
       key: "active" as const,
       label: "Active",
-      count: activeVideos.length + activeNonStemVideos.length,
+      count: activeFilteredVideos.length,
       navIcon: <Play size={14} />,
     },
     {
       key: "completed" as const,
       label: "Completed",
-      count: completedVideos.length + completedNonStemVideos.length,
+      count: completedFilteredVideos.length,
       navIcon: <BookOpen size={14} />,
     },
     {
       key: "quiz" as const,
       label: "Quiz Pending",
-      count: quizPendingVideos.length,
+      count: quizPendingFilteredVideos.length,
       navIcon: <Sparkles size={14} />,
     },
   ];
@@ -468,7 +475,31 @@ export function MyLearningsPage() {
         <div className="ct-learning-layout">
           <aside className="ct-learning-side">
             <div className="ct-learning-side-nav">
-              <p className="ct-learning-side-title">Status</p>
+              <div className="ct-learning-side-filter">
+                <button
+                  type="button"
+                  className={`ct-learning-side-filter-icon ${stemFilter !== "all" ? "active" : ""}`}
+                  title="Reset filter"
+                  onClick={() => setStemFilter("all")}
+                >
+                  <Menu size={14} />
+                </button>
+                <button
+                  type="button"
+                  className={`ct-learning-side-filter-btn ${stemFilter === "stem" ? "active" : ""}`}
+                  onClick={() => toggleStemFilter("stem")}
+                >
+                  STEM
+                </button>
+                <button
+                  type="button"
+                  className={`ct-learning-side-filter-btn ${stemFilter === "nonstem" ? "active" : ""}`}
+                  onClick={() => toggleStemFilter("nonstem")}
+                >
+                  Non-STEM
+                </button>
+              </div>
+
               {sideNavItems.map((item) => (
                 <button
                   type="button"
@@ -489,113 +520,75 @@ export function MyLearningsPage() {
           <div className="ct-learning-content">
             <div key={selectedStatus} className="ct-learning-panel-anim">
               {selectedStatus === "active" && (
-                <>
-                  <div className="ct-learning-filter-row">
-                    <button
-                      type="button"
-                      className={`ct-learning-filter-btn ${activeStemFilter === "all" ? "active" : ""}`}
-                      onClick={() => setActiveStemFilter("all")}
-                    >
-                      All
-                    </button>
-                    <button
-                      type="button"
-                      className={`ct-learning-filter-btn ${activeStemFilter === "stem" ? "active" : ""}`}
-                      onClick={() => setActiveStemFilter("stem")}
-                    >
-                      STEM
-                    </button>
-                    <button
-                      type="button"
-                      className={`ct-learning-filter-btn ${activeStemFilter === "nonstem" ? "active" : ""}`}
-                      onClick={() => setActiveStemFilter("nonstem")}
-                    >
-                      Non-STEM
-                    </button>
-                  </div>
-                  <Section
-                    title={
-                      activeStemFilter === "all"
-                        ? "Active Sessions"
-                        : activeStemFilter === "stem"
-                          ? "Active - STEM"
-                          : "Active - Non-STEM"
-                    }
-                    icon={<Play size={20} style={{ color: "var(--ct-info)" }} />}
-                    videos={activeFilteredVideos}
-                    emptyText={
-                      activeStemFilter === "all"
-                        ? "No active sessions right now."
-                        : activeStemFilter === "stem"
-                          ? "No active STEM sessions right now."
-                          : "No active non-STEM sessions right now."
-                    }
-                    onOpen={openVideo}
-                    onDelete={requestDeleteSession}
-                    onOpenAttempts={setAttemptsVideoId}
-                    deletingSessionId={deleteMutation.isPending ? (deleteMutation.variables ?? null) : null}
-                    insightByVideoId={insightByVideoId}
-                  />
-                </>
+                <Section
+                  title={
+                    stemFilter === "all"
+                      ? "Active Sessions"
+                      : stemFilter === "stem"
+                        ? "Active - STEM"
+                        : "Active - Non-STEM"
+                  }
+                  icon={<Play size={20} style={{ color: "var(--ct-info)" }} />}
+                  videos={activeFilteredVideos}
+                  emptyText={
+                    stemFilter === "all"
+                      ? "No active sessions right now."
+                      : stemFilter === "stem"
+                        ? "No active STEM sessions right now."
+                        : "No active non-STEM sessions right now."
+                  }
+                  onOpen={openVideo}
+                  onDelete={requestDeleteSession}
+                  onOpenAttempts={setAttemptsVideoId}
+                  deletingSessionId={deleteMutation.isPending ? (deleteMutation.variables ?? null) : null}
+                  insightByVideoId={insightByVideoId}
+                />
               )}
 
               {selectedStatus === "completed" && (
-                <>
-                  <div className="ct-learning-filter-row">
-                    <button
-                      type="button"
-                      className={`ct-learning-filter-btn ${completedStemFilter === "all" ? "active" : ""}`}
-                      onClick={() => setCompletedStemFilter("all")}
-                    >
-                      All
-                    </button>
-                    <button
-                      type="button"
-                      className={`ct-learning-filter-btn ${completedStemFilter === "stem" ? "active" : ""}`}
-                      onClick={() => setCompletedStemFilter("stem")}
-                    >
-                      STEM
-                    </button>
-                    <button
-                      type="button"
-                      className={`ct-learning-filter-btn ${completedStemFilter === "nonstem" ? "active" : ""}`}
-                      onClick={() => setCompletedStemFilter("nonstem")}
-                    >
-                      Non-STEM
-                    </button>
-                  </div>
-                  <Section
-                    title={
-                      completedStemFilter === "all"
-                        ? "Completed Sessions"
-                        : completedStemFilter === "stem"
-                          ? "Completed - STEM"
-                          : "Completed - Non-STEM"
-                    }
-                    icon={<BookOpen size={20} style={{ color: "var(--ct-accent-light)" }} />}
-                    videos={completedFilteredVideos}
-                    emptyText={
-                      completedStemFilter === "all"
-                        ? "No completed sessions yet."
-                        : completedStemFilter === "stem"
-                          ? "No completed STEM sessions yet."
-                          : "No completed non-STEM sessions yet."
-                    }
-                    onOpen={openVideo}
-                    onDelete={requestDeleteSession}
-                    onOpenAttempts={setAttemptsVideoId}
-                    deletingSessionId={deleteMutation.isPending ? (deleteMutation.variables ?? null) : null}
-                    insightByVideoId={insightByVideoId}
-                  />
-                </>
+                <Section
+                  title={
+                    stemFilter === "all"
+                      ? "Completed Sessions"
+                      : stemFilter === "stem"
+                        ? "Completed - STEM"
+                        : "Completed - Non-STEM"
+                  }
+                  icon={<BookOpen size={20} style={{ color: "var(--ct-accent-light)" }} />}
+                  videos={completedFilteredVideos}
+                  emptyText={
+                    stemFilter === "all"
+                      ? "No completed sessions yet."
+                      : stemFilter === "stem"
+                        ? "No completed STEM sessions yet."
+                        : "No completed non-STEM sessions yet."
+                  }
+                  onOpen={openVideo}
+                  onDelete={requestDeleteSession}
+                  onOpenAttempts={setAttemptsVideoId}
+                  deletingSessionId={deleteMutation.isPending ? (deleteMutation.variables ?? null) : null}
+                  insightByVideoId={insightByVideoId}
+                />
               )}
 
               {selectedStatus === "quiz" && (
                 <Section
-                  title="Quiz Pending"
+                  title={
+                    stemFilter === "all"
+                      ? "Quiz Pending"
+                      : stemFilter === "stem"
+                        ? "Quiz Pending - STEM"
+                        : "Quiz Pending - Non-STEM"
+                  }
                   icon={<Sparkles size={20} style={{ color: "var(--ct-warning)" }} />}
-                  videos={quizPendingVideos}
-                  emptyText="No quiz-pending videos yet."
+                  videos={quizPendingFilteredVideos}
+                  emptyText={
+                    stemFilter === "all"
+                      ? "No quiz-pending videos yet."
+                      : stemFilter === "stem"
+                        ? "No STEM quiz-pending videos yet."
+                        : "No non-STEM quiz-pending videos yet."
+                  }
                   onOpen={openVideo}
                   onDelete={requestDeleteSession}
                   onOpenAttempts={setAttemptsVideoId}

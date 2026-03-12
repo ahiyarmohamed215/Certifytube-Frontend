@@ -18,6 +18,8 @@ export function AppShell({ children }: PropsWithChildren) {
   const { isLoggedIn, user, clearAuth } = useAuthStore();
 
   const isHomeActive = location.pathname === "/" || location.pathname === "/home";
+  const isLandingPage = location.pathname === "/";
+  const isHomePage = location.pathname === "/home";
   const isLearnActive = location.pathname === "/my-learnings"
     || location.pathname.startsWith("/watch/")
     || location.pathname.startsWith("/analyze/")
@@ -137,7 +139,7 @@ export function AppShell({ children }: PropsWithChildren) {
         </div>
       </main>
 
-      {(isHomeActive || isProfileActive) && (
+      {((isLandingPage || isProfileActive) && !isHomePage) && (
         <footer className="ct-footer ct-footer-compact">
           <div className="ct-footer-compact-inner">
             <div className="ct-footer-main">

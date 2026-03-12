@@ -49,7 +49,6 @@ export function ProfilePage() {
     const allSessions = [...activeAll, ...completedAll, ...quizPendingAll, ...certifiedAll];
     const absoluteLatest = latestSessionByVideo(allSessions);
 
-    // Match My Learnings status logic (latest session per video + same category rules).
     const quizPendingVideos = absoluteLatest.filter((v) => {
       if (!v.stemEligible) return false;
       if (v.status === "QUIZ_PENDING") return true;
@@ -67,17 +66,18 @@ export function ProfilePage() {
       return false;
     });
     const completedNonStemVideos = absoluteLatest.filter((v) => !v.stemEligible && v.status === "COMPLETED");
-
-    const certifiedVideos = absoluteLatest.filter(
-      (v) => v.stemEligible && v.status === "CERTIFIED" && Boolean(v.certificateId),
-    );
+    // Count actual certificates earned (session-level), not unique videos.
+    const certificatesEarned = certifiedAll.reduce((acc, v) => {
+      if (v.certificateId) acc.add(v.certificateId);
+      return acc;
+    }, new Set<string>()).size;
 
     const active = activeStemVideos.length + activeNonStemVideos.length;
     const completed = completedStemVideos.length + completedNonStemVideos.length;
     const quizPending = quizPendingVideos.length;
-    const certified = certifiedVideos.length;
+    const certified = certificatesEarned;
     const total = active + completed + quizPending + certified;
-    const completionRate = total > 0 ? Math.round(((completed + quizPending + certified) / total) * 100) : 0;
+    const completionRate = total > 0 ? Math.round((completed / total) * 100) : 0;
     const certificationRate = total > 0 ? Math.round((certified / total) * 100) : 0;
     return { active, completed, quizPending, certified, total, completionRate, certificationRate };
   }, [data]);
@@ -152,7 +152,7 @@ export function ProfilePage() {
           </h2>
           <div style={{ display: "grid", gap: 10, fontSize: 14 }}>
             <div className="ct-profile-line">
-              <span>Total unique videos</span>
+              <span>Total videos</span>
               <strong>{summary.total}</strong>
             </div>
             <div className="ct-profile-line">
