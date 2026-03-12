@@ -803,6 +803,116 @@ img {
   color: var(--ct-primary);
 }
 
+.ct-paused-session {
+  margin-bottom: 16px;
+  position: relative;
+  align-items: flex-start;
+  padding-right: 52px;
+  cursor: default;
+}
+
+.ct-paused-session-thumb {
+  border: 1px solid var(--ct-border-light);
+}
+
+.ct-paused-session-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.ct-paused-session-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.ct-paused-session-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--ct-text-muted);
+}
+
+.ct-paused-session-title {
+  white-space: normal;
+  margin-bottom: 2px;
+}
+
+.ct-paused-session-meta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--ct-text-muted);
+  flex-wrap: wrap;
+}
+
+.ct-paused-session-actions {
+  align-self: center;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.ct-paused-session-continue {
+  min-width: 108px;
+  justify-content: center;
+}
+
+.ct-paused-session-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid var(--ct-border);
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--ct-text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--ct-transition);
+}
+
+.ct-paused-session-close:hover {
+  border-color: rgba(230, 57, 70, 0.34);
+  color: var(--ct-primary);
+  background: #fff;
+}
+
+@media (max-width: 768px) {
+  .ct-paused-session {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 12px 12px 12px;
+  }
+
+  .ct-paused-session-thumb {
+    margin-top: 12px;
+  }
+
+  .ct-paused-session-actions {
+    width: 100%;
+    margin-top: 10px;
+  }
+
+  .ct-paused-session-actions .ct-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .ct-paused-session-close {
+    top: 8px;
+    right: 8px;
+  }
+}
+
 .ct-learning-panel-anim {
   animation: ct-learning-switch 0.26s cubic-bezier(0.2, 0.85, 0.25, 1);
 }

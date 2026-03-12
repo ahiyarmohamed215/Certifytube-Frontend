@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
-import { Play, BarChart3, ClipboardCheck, Award, BookOpen, Clock, RotateCcw, Sparkles, Trash2, AlertTriangle, Menu } from "lucide-react";
+import { Play, BarChart3, ClipboardCheck, Award, BookOpen, Clock, RotateCcw, Sparkles, Trash2, AlertTriangle, Menu, X } from "lucide-react";
 import toast from "react-hot-toast";
 import { createPortal } from "react-dom";
 
@@ -26,9 +26,11 @@ type PersistedWatchContext = {
   videoTitle?: string;
   fromStatus?: LearningStatusTab;
   fromPath?: string;
+  lastPositionSec?: number;
 };
 
 const WATCH_RESUME_KEY = "ct_watch_resume_context";
+const WATCH_CONTEXT_EVENT = "ct-watch-context-change";
 
 function readPersistedWatchContext(): PersistedWatchContext | null {
   let raw = "";
@@ -386,6 +388,7 @@ export function MyLearningsPage() {
       // noop
     }
     setResumeContext(null);
+    window.dispatchEvent(new Event(WATCH_CONTEXT_EVENT));
   };
 
   const continueResumeContext = () => {
@@ -405,6 +408,12 @@ export function MyLearningsPage() {
       },
     });
   };
+
+  const resumeFromLabel = resumeContext?.fromStatus === "completed"
+    ? "Completed"
+    : resumeContext?.fromStatus === "quiz"
+      ? "Quiz Pending"
+      : "Active";
 
   const { data, isLoading } = useQuery({
     queryKey: ["dashboard", "all-statuses"],
@@ -562,21 +571,42 @@ export function MyLearningsPage() {
       <h1 className="ct-page-title">My Learnings</h1>
       <p className="ct-page-subtitle">Track learning progress, scores, and rewatch attempts by status.</p>
       {resumeContext && (
-        <div className="ct-card" style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 4 }}>Paused video session</div>
-            <div style={{ fontSize: 13, color: "var(--ct-text-secondary)" }}>
+        <div className="ct-card ct-card-hover ct-learning-row ct-paused-session">
+          <img
+            src={`https://img.youtube.com/vi/${resumeContext.videoId}/mqdefault.jpg`}
+            alt={resumeContext.videoTitle || "Paused video"}
+            className="ct-learning-row-thumb ct-paused-session-thumb"
+          />
+
+          <div className="ct-learning-row-content ct-paused-session-body">
+            <div className="ct-learning-row-top ct-paused-session-top">
+              <span className="ct-badge ct-badge-active">Paused Video Session</span>
+              {typeof resumeContext.lastPositionSec === "number" && resumeContext.lastPositionSec > 0 && (
+                <span className="ct-paused-session-time">
+                  <Clock size={12} />
+                  Paused at {formatDuration(resumeContext.lastPositionSec)}
+                </span>
+              )}
+            </div>
+            <div className="ct-learning-row-title ct-paused-session-title">
               {resumeContext.videoTitle || "Resume your active watch session whenever you are ready."}
             </div>
+            <div className="ct-paused-session-meta">
+              <span>Return tab: {resumeFromLabel}</span>
+              <span>Session saved until you close it</span>
+            </div>
           </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button className="ct-btn ct-btn-primary ct-btn-sm" onClick={continueResumeContext}>
+
+          <div className="ct-learning-row-action ct-paused-session-actions">
+            <button className="ct-btn ct-btn-primary ct-btn-sm ct-paused-session-continue" onClick={continueResumeContext}>
+              <Play size={14} />
               Continue
             </button>
-            <button className="ct-btn ct-btn-secondary ct-btn-sm" onClick={closeResumeContext}>
-              Close Session
-            </button>
           </div>
+
+          <button className="ct-paused-session-close" onClick={closeResumeContext} aria-label="Cancel paused session">
+            <X size={14} />
+          </button>
         </div>
       )}
 

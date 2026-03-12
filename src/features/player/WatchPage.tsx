@@ -23,9 +23,11 @@ type PersistedWatchContext = {
   videoTitle?: string;
   fromStatus: LearningStatusTab;
   fromPath: string;
+  lastPositionSec?: number;
 };
 
 const WATCH_RESUME_KEY = "ct_watch_resume_context";
+const WATCH_CONTEXT_EVENT = "ct-watch-context-change";
 
 function normalizeLearningStatus(value: unknown): LearningStatusTab | null {
   if (value === "active" || value === "completed" || value === "quiz") return value;
@@ -213,22 +215,34 @@ export function WatchPage() {
     } catch {
       // noop
     }
+    window.dispatchEvent(new Event(WATCH_CONTEXT_EVENT));
   }, []);
 
   const savePersistedWatchContext = useCallback(() => {
     if (!shouldPersistWatchContextRef.current) return;
     if (!videoId || sessionEndedRef.current) return;
+    let lastPositionSec: number | undefined;
+    try {
+      const position = Number(playerRef.current?.getCurrentTime?.() ?? lastObservedTimeRef.current ?? 0);
+      if (Number.isFinite(position) && position > 0) {
+        lastPositionSec = position;
+      }
+    } catch {
+      // noop
+    }
     const payload: PersistedWatchContext = {
       videoId,
       videoTitle: title,
       fromStatus,
       fromPath,
+      lastPositionSec,
     };
     try {
       sessionStorage.setItem(WATCH_RESUME_KEY, JSON.stringify(payload));
     } catch {
       // noop
     }
+    window.dispatchEvent(new Event(WATCH_CONTEXT_EVENT));
   }, [videoId, title, fromStatus, fromPath]);
 
   useEffect(() => {

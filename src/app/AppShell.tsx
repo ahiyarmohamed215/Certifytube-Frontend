@@ -147,7 +147,7 @@ export function AppShell({ children }: PropsWithChildren) {
                 <Link to={isLoggedIn ? "/home" : "/"} className="ct-footer-logo">
                   CertifyTube
                 </Link>
-                <p className="ct-footer-description" style={{ marginTop: '8px', fontSize: '13px', color: '#666', maxWidth: '500px', lineHeight: '1.5', textAlign: 'left' }}>
+                <p className="ct-footer-description" style={{ marginTop: "8px", fontSize: "13px", color: "#666", maxWidth: "500px", lineHeight: "1.5", textAlign: "left" }}>
                   A verification-first learning platform for tracking progress, proving knowledge, and sharing trusted certificates from YouTube content.
                 </p>
               </div>
@@ -184,3 +184,4 @@ export function AppShell({ children }: PropsWithChildren) {
     </div>
   );
 }
+
