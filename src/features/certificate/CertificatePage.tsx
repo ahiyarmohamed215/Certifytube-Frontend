@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, CheckCircle2, Clock, Download, ExternalLink, Printer, Share2, XCircle } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Clock, Download, ExternalLink, Printer, Share2, X, XCircle } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import toast from "react-hot-toast";
 import html2canvas from "html2canvas";
@@ -25,9 +25,20 @@ function looksLikeEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+type CertificateLocationState = {
+  fromStatus?: "active" | "completed" | "quiz";
+  fromPath?: string;
+};
+
 export function CertificatePage() {
   const { certificateId } = useParams();
   const nav = useNavigate();
+  const location = useLocation();
+  const locationState = (location.state as CertificateLocationState | null) || null;
+  const fromStatus = locationState?.fromStatus === "active" || locationState?.fromStatus === "completed" || locationState?.fromStatus === "quiz"
+    ? locationState.fromStatus
+    : "quiz";
+  const fromPath = (locationState?.fromPath || `/my-learnings?status=${fromStatus}`).trim();
   const [downloading, setDownloading] = useState(false);
   const { user } = useAuthStore();
   const { data: me } = useQuery({
@@ -42,20 +53,58 @@ export function CertificatePage() {
     enabled: Boolean(certificateId),
   });
 
+  const captureCertificateCanvas = async (el: HTMLElement): Promise<HTMLCanvasElement> => {
+    if (document.fonts?.ready) {
+      try {
+        await document.fonts.ready;
+      } catch {
+        // ignore font readiness failures and continue rendering
+      }
+    }
+
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+    return html2canvas(el, {
+      scale: Math.max(2, Math.min(3, window.devicePixelRatio || 2)),
+      useCORS: true,
+      logging: false,
+      backgroundColor: "#fdfcfb",
+      windowWidth: Math.ceil(el.scrollWidth),
+      windowHeight: Math.ceil(el.scrollHeight),
+      scrollX: 0,
+      scrollY: -window.scrollY,
+    });
+  };
+
+  const buildCertificatePdf = (canvas: HTMLCanvasElement): jsPDF => {
+    const pdf = new jsPDF("l", "pt", "a4");
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const imageRatio = canvas.width / canvas.height;
+    const pageRatio = pageWidth / pageHeight;
+
+    let renderWidth = pageWidth;
+    let renderHeight = pageHeight;
+    if (imageRatio > pageRatio) {
+      renderHeight = pageWidth / imageRatio;
+    } else if (imageRatio < pageRatio) {
+      renderWidth = pageHeight * imageRatio;
+    }
+    const x = (pageWidth - renderWidth) / 2;
+    const y = (pageHeight - renderHeight) / 2;
+
+    const imageData = canvas.toDataURL("image/png", 1.0);
+    pdf.addImage(imageData, "PNG", x, y, renderWidth, renderHeight, undefined, "FAST");
+    return pdf;
+  };
+
   const handleDownload = async () => {
     const el = document.getElementById("printable-certificate");
     if (!el) { toast.error("Certificate not ready"); return; }
     setDownloading(true);
     try {
-      const canvas = await html2canvas(el, { scale: 2, useCORS: true, logging: false, backgroundColor: "#fdfcfb" });
-      const imgData = canvas.toDataURL("image/jpeg", 1.0);
-      const pdf = new jsPDF("l", "pt", "a4");
-      const pw = pdf.internal.pageSize.getWidth();
-      const ph = pdf.internal.pageSize.getHeight();
-      const ratio = canvas.width / canvas.height;
-      let w = pw, h = pw / ratio, x = 0, y = 0;
-      if (h > ph) { h = ph; w = ph * ratio; x = (pw - w) / 2; } else { y = (ph - h) / 2; }
-      pdf.addImage(imgData, "JPEG", x, y, w, h);
+      const canvas = await captureCertificateCanvas(el);
+      const pdf = buildCertificatePdf(canvas);
       pdf.save(`Certificate-${learnerName.replace(/\s+/g, "_")}.pdf`);
       toast.success("Certificate downloaded");
     } catch { toast.error("Failed to generate PDF"); }
@@ -92,14 +141,28 @@ export function CertificatePage() {
     ? certLearnerName
     : profileName || certLearnerName || "Certified Learner";
   const platformName = cert.platformName || "CertifyTube";
+  const goMyLearnings = () => nav(fromPath, { state: { initialStatus: fromStatus } });
+  const goBack = () => {
+    if (window.history.length > 1) {
+      nav(-1);
+      return;
+    }
+    goMyLearnings();
+  };
 
   return (
     <div className="ct-slide-up" style={{ maxWidth: 960, margin: "0 auto" }}>
-      {/* Toolbar */}
-      <div className="ct-cert-toolbar ct-no-print">
-        <button className="ct-btn ct-btn-ghost ct-btn-sm" onClick={() => nav(-1)}>
-          <ArrowLeft size={14} /> Go Back
+      <div className="ct-analyze-topbar ct-no-print">
+        <button className="ct-btn ct-btn-secondary ct-btn-sm ct-analyze-back-btn" onClick={goBack}>
+          <ArrowLeft size={14} /> Back
         </button>
+        <button className="ct-btn ct-btn-sm ct-analyze-close-btn" onClick={goMyLearnings}>
+          <X size={14} /> Close
+        </button>
+      </div>
+
+      {/* Toolbar */}
+      <div className="ct-cert-toolbar ct-no-print" style={{ justifyContent: "flex-end" }}>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button className="ct-btn ct-btn-secondary ct-btn-sm" onClick={handlePrint}><Printer size={14} /> Print</button>
           <button className="ct-btn ct-btn-primary ct-btn-sm" onClick={handleDownload} disabled={downloading} id="cert-download-btn">
