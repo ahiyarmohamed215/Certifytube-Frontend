@@ -3,6 +3,7 @@ import type { ApiClientError } from "./http";
 type ApiErrorPayload = {
   message?: unknown;
   error?: unknown;
+  code?: unknown;
 };
 
 export function getApiStatus(error: unknown): number {
@@ -23,4 +24,10 @@ export function getApiMessage(error: unknown, fallback: string): string {
   if (payloadMessage.trim()) return payloadMessage.trim();
   if (typeof err?.message === "string" && err.message.trim()) return err.message.trim();
   return fallback;
+}
+
+export function getApiCode(error: unknown): string {
+  const err = error as ApiClientError;
+  const payload = (err?.data || {}) as ApiErrorPayload;
+  return typeof payload?.code === "string" ? payload.code.trim() : "";
 }

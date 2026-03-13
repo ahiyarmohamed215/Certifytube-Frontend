@@ -26,7 +26,9 @@ type PersistedWatchContext = {
   videoTitle?: string;
   fromStatus?: LearningStatusTab;
   fromPath?: string;
+  sessionId?: string;
   lastPositionSec?: number;
+  showBanner?: boolean;
 };
 
 const WATCH_RESUME_KEY = "ct_watch_resume_context";
@@ -360,6 +362,7 @@ export function MyLearningsPage() {
   const [stemFilter, setStemFilter] = useState<StemFilter>("all");
   const [resumeContext, setResumeContext] = useState<PersistedWatchContext | null>(() => readPersistedWatchContext());
   const hasOpenModal = Boolean(deleteTarget || attemptsVideoId);
+  const showResumeBanner = Boolean(resumeContext && resumeContext.showBanner !== false);
 
   useEffect(() => {
     if (location.pathname !== "/my-learnings") return;
@@ -405,6 +408,8 @@ export function MyLearningsPage() {
         videoTitle: resumeContext.videoTitle,
         fromStatus: resumeStatus,
         fromPath: resumePath,
+        sessionId: resumeContext.sessionId,
+        lastPositionSec: resumeContext.lastPositionSec,
       },
     });
   };
@@ -509,8 +514,30 @@ export function MyLearningsPage() {
     const action = actionFor(v);
     const fromStatus: LearningStatusTab = selectedStatus;
     const fromPath = `/my-learnings?status=${fromStatus}`;
+    const latestResumeContext = readPersistedWatchContext();
+    const resumeLastPosition = latestResumeContext
+      && latestResumeContext.videoId === v.videoId
+      && (!latestResumeContext.sessionId || latestResumeContext.sessionId === v.sessionId)
+      && typeof latestResumeContext.lastPositionSec === "number"
+      && Number.isFinite(latestResumeContext.lastPositionSec)
+      && latestResumeContext.lastPositionSec > 0
+      ? latestResumeContext.lastPositionSec
+      : v.lastPositionSec;
     if (action.path.startsWith("/watch/")) {
-      nav(action.path, { state: { videoTitle: v.videoTitle, fromStatus, fromPath } });
+      nav(action.path, {
+        state: {
+          videoTitle: v.videoTitle,
+          fromStatus,
+          fromPath,
+          ...(v.status === "ACTIVE"
+            ? {
+              sessionId: v.sessionId,
+              stemEligible: v.stemEligible,
+              lastPositionSec: resumeLastPosition,
+            }
+            : {}),
+        },
+      });
       return;
     }
     if (action.path.startsWith("/analyze/")) {
@@ -570,7 +597,7 @@ export function MyLearningsPage() {
     <div className="ct-slide-up">
       <h1 className="ct-page-title">My Learnings</h1>
       <p className="ct-page-subtitle">Track learning progress, scores, and rewatch attempts by status.</p>
-      {resumeContext && (
+      {showResumeBanner && resumeContext && (
         <div className="ct-card ct-card-hover ct-learning-row ct-paused-session">
           <img
             src={`https://img.youtube.com/vi/${resumeContext.videoId}/mqdefault.jpg`}

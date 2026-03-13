@@ -27,7 +27,7 @@ export function AppShell({ children }: PropsWithChildren) {
     || location.pathname.startsWith("/result/");
   const isCertifiedActive = location.pathname === "/certified"
     || location.pathname.startsWith("/certificate/");
-  const isProfileActive = location.pathname === "/profile";
+  const isProfileActive = location.pathname === "/profile" || location.pathname.startsWith("/profile/");
   const isAdminActive = location.pathname === "/admin";
   const isLoginActive = location.pathname === "/login";
   const isSignupActive = location.pathname === "/signup";
@@ -184,4 +184,3 @@ export function AppShell({ children }: PropsWithChildren) {
     </div>
   );
 }
-

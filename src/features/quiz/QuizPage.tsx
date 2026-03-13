@@ -43,6 +43,11 @@ type LockPopupState = {
   allowClose?: boolean;
   closeText?: string;
 };
+type GenerateConfirmState = {
+  sessionId: string;
+  remainingAttempts: number;
+  maxAttempts: number;
+};
 
 function normalizeQuizAttemptEntry(raw: unknown): NormalizedAttemptEntry {
   if (typeof raw === "number" && Number.isFinite(raw)) {
@@ -264,6 +269,7 @@ export function QuizPage() {
   const [consumedAttemptsUsed, setConsumedAttemptsUsed] = useState(0);
   const [submitBlockedMessage, setSubmitBlockedMessage] = useState<string | null>(null);
   const [lockPopup, setLockPopup] = useState<LockPopupState | null>(null);
+  const [generateConfirm, setGenerateConfirm] = useState<GenerateConfirmState | null>(null);
   const violationCountRef = useRef(0);
   const quizLockEnabledRef = useRef(true);
   const forceClosingRef = useRef(false);
@@ -398,6 +404,18 @@ export function QuizPage() {
     }
   }, [fromPath, fromStatus, nav]);
 
+  const closeGenerateConfirm = useCallback(() => {
+    if (generating) return;
+    setGenerateConfirm(null);
+  }, [generating]);
+
+  const confirmGenerateQuiz = useCallback(async () => {
+    if (!generateConfirm || generating) return;
+    const sid = generateConfirm.sessionId;
+    setGenerateConfirm(null);
+    await generateQuizAfterConfirmation(sid);
+  }, [generateConfirm, generateQuizAfterConfirmation, generating]);
+
   const handleGenerate = async () => {
     if (generating) return;
     const sid = sessionIdForGenerate;
@@ -447,7 +465,11 @@ export function QuizPage() {
         return;
       }
 
-      await generateQuizAfterConfirmation(sid);
+      setGenerateConfirm({
+        sessionId: sid,
+        remainingAttempts: effectiveRemaining,
+        maxAttempts: maxAllowed,
+      });
     } catch (e: any) {
       toast.error(e?.message || "Failed to check quiz eligibility");
     }
@@ -686,7 +708,7 @@ export function QuizPage() {
   );
 
   useEffect(() => {
-    if (!lockPopup) return undefined;
+    if (!lockPopup && !generateConfirm) return undefined;
 
     const prevBodyOverflow = document.body.style.overflow;
     const prevHtmlOverflow = document.documentElement.style.overflow;
@@ -696,7 +718,7 @@ export function QuizPage() {
       document.body.style.overflow = prevBodyOverflow;
       document.documentElement.style.overflow = prevHtmlOverflow;
     };
-  }, [lockPopup]);
+  }, [lockPopup, generateConfirm]);
 
   const goPrevQuestion = () => {
     setActiveQuestionIndex((prev) => Math.max(0, prev - 1));
@@ -1069,6 +1091,35 @@ export function QuizPage() {
             </div>
           )}
         </div>
+      )}
+
+      {generateConfirm && createPortal(
+        <div className="ct-modal-backdrop" onClick={closeGenerateConfirm}>
+          <div
+            className="ct-modal-card ct-quiz-lock-modal"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Generate quiz confirmation"
+          >
+            <div className="ct-quiz-lock-icon">
+              <ClipboardCheck size={20} />
+            </div>
+            <h3 className="ct-quiz-lock-title">Generate quiz now?</h3>
+            <p className="ct-quiz-lock-text">
+              Generating this quiz uses 1 attempt. Remaining attempts after generate: {Math.max(0, generateConfirm.remainingAttempts - 1)} of {generateConfirm.maxAttempts}.
+            </p>
+            <div className="ct-modal-actions">
+              <button className="ct-btn ct-btn-secondary" onClick={closeGenerateConfirm} disabled={generating}>
+                Cancel
+              </button>
+              <button className="ct-btn ct-btn-primary" onClick={() => void confirmGenerateQuiz()} disabled={generating}>
+                {generating ? "Generating..." : "Generate Quiz"}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
       )}
 
       {lockPopup && createPortal(

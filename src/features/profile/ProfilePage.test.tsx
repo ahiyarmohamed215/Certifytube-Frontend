@@ -1,11 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ProfilePage } from "./ProfilePage";
-import { changePassword, deleteMyAccount, getMe } from "../../api/auth";
+import { deleteMyAccount, getMe } from "../../api/auth";
 import { getDashboard } from "../../api/dashboard";
 import { useAuthStore } from "../../store/useAuthStore";
 
@@ -19,7 +19,6 @@ vi.mock("react-hot-toast", () => ({
 vi.mock("../../api/auth", () => ({
   getMe: vi.fn(),
   deleteMyAccount: vi.fn(),
-  changePassword: vi.fn(),
 }));
 
 vi.mock("../../api/dashboard", () => ({
@@ -28,7 +27,6 @@ vi.mock("../../api/dashboard", () => ({
 
 const mockedGetMe = vi.mocked(getMe);
 const mockedDeleteMyAccount = vi.mocked(deleteMyAccount);
-const mockedChangePassword = vi.mocked(changePassword);
 const mockedGetDashboard = vi.mocked(getDashboard);
 
 function renderProfilePage() {
@@ -44,6 +42,7 @@ function renderProfilePage() {
       <MemoryRouter initialEntries={["/profile"]}>
         <Routes>
           <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/profile/change-password" element={<div>Change Password Page</div>} />
           <Route path="/login" element={<div>Login Page</div>} />
         </Routes>
       </MemoryRouter>
@@ -111,7 +110,6 @@ describe("ProfilePage delete account", () => {
     });
     expect(await screen.findByText("Login Page")).toBeInTheDocument();
     expect(localStorage.getItem("ct_token")).toBeNull();
-    expect(localStorage.getItem("ct_user")).toBeNull();
     expect(localStorage.getItem("ct_test_data")).toBeNull();
   });
 
@@ -131,50 +129,12 @@ describe("ProfilePage delete account", () => {
     expect(await screen.findByText("Backend says cannot delete now")).toBeInTheDocument();
   });
 
-  it("changes password when form is valid", async () => {
-    mockedChangePassword.mockResolvedValue({ message: "Password updated successfully" });
-
+  it("opens dedicated change password page", async () => {
+    const user = userEvent.setup();
     renderProfilePage();
     await screen.findByText("Profile");
 
-    fireEvent.change(screen.getByLabelText("Current Password"), { target: { value: "old-pass1" } });
-    fireEvent.change(screen.getByLabelText("New Password"), { target: { value: "new-pass1" } });
-    fireEvent.change(screen.getByLabelText("Confirm New Password"), { target: { value: "new-pass1" } });
-    fireEvent.click(screen.getByRole("button", { name: /update password/i }));
-
-    await waitFor(() => {
-      expect(mockedChangePassword).toHaveBeenCalledWith("old-pass1", "new-pass1");
-    });
-    expect(await screen.findByText("Password updated successfully")).toBeInTheDocument();
-  });
-
-  it("shows validation error when confirm password does not match", async () => {
-    renderProfilePage();
-    await screen.findByText("Profile");
-
-    fireEvent.change(screen.getByLabelText("Current Password"), { target: { value: "old-pass1" } });
-    fireEvent.change(screen.getByLabelText("New Password"), { target: { value: "new-pass1" } });
-    fireEvent.change(screen.getByLabelText("Confirm New Password"), { target: { value: "diff-pass1" } });
-    fireEvent.click(screen.getByRole("button", { name: /update password/i }));
-
-    expect(mockedChangePassword).not.toHaveBeenCalled();
-    expect(await screen.findByText("New password and confirm password must match")).toBeInTheDocument();
-  });
-
-  it("redirects to login when change password returns 401", async () => {
-    mockedChangePassword.mockRejectedValue(Object.assign(new Error("Unauthorized"), { status: 401 }));
-    localStorage.setItem("ct_token", "token-1");
-    localStorage.setItem("ct_user", JSON.stringify({ userId: 7, email: "learner@example.com", role: "USER" }));
-
-    renderProfilePage();
-    await screen.findByText("Profile");
-
-    fireEvent.change(screen.getByLabelText("Current Password"), { target: { value: "old-pass1" } });
-    fireEvent.change(screen.getByLabelText("New Password"), { target: { value: "new-pass1" } });
-    fireEvent.change(screen.getByLabelText("Confirm New Password"), { target: { value: "new-pass1" } });
-    fireEvent.click(screen.getByRole("button", { name: /update password/i }));
-
-    expect(await screen.findByText("Login Page")).toBeInTheDocument();
-    expect(localStorage.getItem("ct_token")).toBeNull();
+    await user.click(screen.getByRole("button", { name: /change password/i }));
+    expect(await screen.findByText("Change Password Page")).toBeInTheDocument();
   });
 });

@@ -16,6 +16,10 @@ type LocationState = {
   videoTitle?: string;
   fromStatus?: LearningStatusTab;
   fromPath?: string;
+  sessionId?: string;
+  stemEligible?: boolean;
+  stemMessage?: string | null;
+  lastPositionSec?: number | null;
 };
 
 type PersistedWatchContext = {
@@ -23,7 +27,9 @@ type PersistedWatchContext = {
   videoTitle?: string;
   fromStatus: LearningStatusTab;
   fromPath: string;
+  sessionId?: string;
   lastPositionSec?: number;
+  showBanner?: boolean;
 };
 
 const WATCH_RESUME_KEY = "ct_watch_resume_context";
@@ -32,6 +38,23 @@ const WATCH_CONTEXT_EVENT = "ct-watch-context-change";
 function normalizeLearningStatus(value: unknown): LearningStatusTab | null {
   if (value === "active" || value === "completed" || value === "quiz") return value;
   return null;
+}
+
+function readPersistedWatchContext(): PersistedWatchContext | null {
+  let raw = "";
+  try {
+    raw = sessionStorage.getItem(WATCH_RESUME_KEY) || "";
+  } catch {
+    return null;
+  }
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as PersistedWatchContext;
+    if (!parsed?.videoId) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
 }
 
 const inflightStartSessionByKey = new Map<string, Promise<StartSessionResponse>>();
@@ -85,6 +108,13 @@ function pickLatestByVideo(data?: DashboardResponse) {
   return [...map.values()].sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0));
 }
 
+function pickLatestActiveSessionByVideo(data: DashboardResponse | undefined, targetVideoId: string): DashboardVideo | null {
+  const activeMatches = (data?.activeVideos || [])
+    .filter((video) => video.videoId === targetVideoId)
+    .sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0));
+  return activeMatches[0] || null;
+}
+
 function formatDuration(sec: number) {
   const total = Math.max(0, Math.floor(sec));
   const h = Math.floor(total / 3600);
@@ -111,6 +141,7 @@ export function WatchPage() {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const locState = (location.state || {}) as LocationState;
+  const routeEntryKey = location.key || "watch-entry";
   const queryTitle = (searchParams.get("title") || "").trim();
   const fromStatus = normalizeLearningStatus(locState.fromStatus) || "active";
   const fromPath = (locState.fromPath || `/my-learnings?status=${fromStatus}`).trim();
@@ -139,6 +170,8 @@ export function WatchPage() {
   const lastObservedTimeRef = useRef<number | null>(null);
   const lastSeekSentAtRef = useRef(0);
   const suppressSeekUntilMsRef = useRef(0);
+  const resumeSeekKeyRef = useRef<string | null>(null);
+  const shouldShowPersistedBannerRef = useRef(true);
   const canLog = Boolean(sessionId && !sessionEnded);
   const canLogRef = useRef(false);
   const shouldPersistWatchContextRef = useRef(true);
@@ -188,6 +221,7 @@ export function WatchPage() {
     lastObservedTimeRef.current = null;
     lastSeekSentAtRef.current = 0;
     suppressSeekUntilMsRef.current = 0;
+    resumeSeekKeyRef.current = null;
   }, [sessionId]);
 
   const makeEvent = useCallback((type: string, extras?: Partial<EventPayload>): EventPayload => ({
@@ -218,7 +252,7 @@ export function WatchPage() {
     window.dispatchEvent(new Event(WATCH_CONTEXT_EVENT));
   }, []);
 
-  const savePersistedWatchContext = useCallback(() => {
+  const savePersistedWatchContext = useCallback((options?: { showBanner?: boolean }) => {
     if (!shouldPersistWatchContextRef.current) return;
     if (!videoId || sessionEndedRef.current) return;
     let lastPositionSec: number | undefined;
@@ -235,7 +269,9 @@ export function WatchPage() {
       videoTitle: title,
       fromStatus,
       fromPath,
+      sessionId: sessionIdRef.current || undefined,
       lastPositionSec,
+      showBanner: options?.showBanner ?? shouldShowPersistedBannerRef.current,
     };
     try {
       sessionStorage.setItem(WATCH_RESUME_KEY, JSON.stringify(payload));
@@ -256,11 +292,79 @@ export function WatchPage() {
     const preferredTitle = locState.videoTitle || queryTitle || `Video ${videoId}`;
     const tokenKey = localStorage.getItem("ct_token") || "anon";
     const dedupeKey = `${tokenKey}:${videoId}`;
+    const shouldTryActiveResume = Boolean(locState.fromPath || locState.fromStatus || locState.sessionId);
+    const persistedContext = readPersistedWatchContext();
+    const existingSessionId = typeof locState.sessionId === "string" && locState.sessionId.trim()
+      ? locState.sessionId.trim()
+      : null;
+    const existingStemEligible = typeof locState.stemEligible === "boolean" ? locState.stemEligible : null;
+    const existingStemMessage = typeof locState.stemMessage === "string" || locState.stemMessage === null
+      ? locState.stemMessage
+      : null;
+    const persistedLastPosition = persistedContext
+      && persistedContext.videoId === videoId
+      && typeof persistedContext.lastPositionSec === "number"
+      && Number.isFinite(persistedContext.lastPositionSec)
+      && persistedContext.lastPositionSec > 0
+      && (
+        !existingSessionId
+        || !persistedContext.sessionId
+        || persistedContext.sessionId === existingSessionId
+      )
+      ? persistedContext.lastPositionSec
+      : null;
+    const routeLastPosition = typeof locState.lastPositionSec === "number"
+      && Number.isFinite(locState.lastPositionSec)
+      && locState.lastPositionSec > 0
+      ? locState.lastPositionSec
+      : null;
+    const existingLastPosition = routeLastPosition ?? persistedLastPosition;
     shouldPersistWatchContextRef.current = true;
+    shouldShowPersistedBannerRef.current = true;
+    setSessionId(null);
+    setResumed(false);
+    setLastPos(null);
+    setSessionEnded(false);
     setStemEligible(null);
+    setStemMessage(null);
+    setTitle(preferredTitle);
     setShowWatchIntro(true);
+    playerRef.current = null;
+
+    if (existingSessionId) {
+      setSessionId(existingSessionId);
+      setTitle(preferredTitle);
+      setStemEligible(existingStemEligible ?? true);
+      setStemMessage(existingStemMessage);
+      setResumed(true);
+      setLastPos(existingLastPosition);
+      setSessionEnded(false);
+      setShowWatchIntro(false);
+      return () => {
+        cancelled = true;
+      };
+    }
 
     (async () => {
+      if (shouldTryActiveResume && fromStatus === "active") {
+        try {
+          const latest = pickLatestActiveSessionByVideo(await getDashboard(), videoId);
+          if (!cancelled && latest?.sessionId) {
+            setSessionId(latest.sessionId);
+            setTitle(preferredTitle);
+            setStemEligible(latest.stemEligible);
+            setStemMessage(null);
+            setResumed(true);
+            setLastPos(latest.lastPositionSec ?? null);
+            setSessionEnded(false);
+            setShowWatchIntro(false);
+            return;
+          }
+        } catch {
+          // fall through and try start session
+        }
+      }
+
       try {
         const res = await startSessionDeduped(dedupeKey, {
           videoId,
@@ -277,6 +381,28 @@ export function WatchPage() {
         setSessionEnded(false);
         setShowWatchIntro(res.stemEligible && !res.resumed);
       } catch (e: any) {
+        try {
+          const latest = pickLatestActiveSessionByVideo(await getDashboard(), videoId);
+          if (!cancelled && latest?.sessionId) {
+            setSessionId(latest.sessionId);
+            setTitle(preferredTitle);
+            setStemEligible(latest.stemEligible);
+            setStemMessage(null);
+            setResumed(true);
+            setLastPos(latest.lastPositionSec ?? null);
+            setSessionEnded(false);
+            setShowWatchIntro(false);
+            toast.success("Resumed your active session");
+            return;
+          }
+        } catch {
+          // noop
+        }
+        if (!cancelled) {
+          setStemEligible(false);
+          setStemMessage("Playback started without session tracking. Please reopen from My Learnings if progress does not update.");
+          setShowWatchIntro(false);
+        }
         toast.error(e?.message || "Failed to start session");
       }
     })();
@@ -284,8 +410,19 @@ export function WatchPage() {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [videoId, queryTitle]);
+  }, [
+    videoId,
+    queryTitle,
+    locState.videoTitle,
+    locState.sessionId,
+    locState.stemEligible,
+    locState.stemMessage,
+    locState.lastPositionSec,
+    locState.fromPath,
+    locState.fromStatus,
+    fromStatus,
+    routeEntryKey,
+  ]);
 
   useEffect(() => {
     if (!canLog || !playerRef.current) return;
@@ -458,14 +595,21 @@ export function WatchPage() {
       // noop
     }
 
-    if (resumed && lastPos != null && lastPos > 0) {
-      e.target.seekTo(lastPos, true);
-      try {
-        e.target.pauseVideo?.();
-      } catch {
-        // noop
-      }
-      suppressSeekUntilMsRef.current = Date.now() + 1500;
+    const resumeKey = `${videoId || ""}:${routeEntryKey}:${sessionIdRef.current || "none"}`;
+    if (resumed && lastPos != null && lastPos > 0 && resumeSeekKeyRef.current !== resumeKey) {
+      resumeSeekKeyRef.current = resumeKey;
+      const applyResumePosition = () => {
+        try {
+          e.target.seekTo(lastPos, true);
+          e.target.playVideo?.();
+        } catch {
+          // noop
+        }
+      };
+      applyResumePosition();
+      window.setTimeout(applyResumePosition, 250);
+      window.setTimeout(applyResumePosition, 900);
+      suppressSeekUntilMsRef.current = Date.now() + 2200;
       lastObservedTimeRef.current = lastPos;
       toast.success(`Resumed at ${Math.floor(lastPos / 60)}:${Math.floor(lastPos % 60).toString().padStart(2, "0")}`);
     }
@@ -596,7 +740,17 @@ export function WatchPage() {
   const handleClosePlayer = async () => {
     if (closingPlayer) return;
     setClosingPlayer(true);
-    shouldPersistWatchContextRef.current = false;
+    shouldPersistWatchContextRef.current = true;
+    shouldShowPersistedBannerRef.current = false;
+    let snapshotSec = 0;
+    try {
+      snapshotSec = Number(playerRef.current?.getCurrentTime?.() ?? currentTime ?? 0);
+    } catch {
+      snapshotSec = Number(currentTime || 0);
+    }
+    if (Number.isFinite(snapshotSec) && snapshotSec > 0) {
+      lastObservedTimeRef.current = snapshotSec;
+    }
     try {
       if (canLogRef.current) {
         try {
@@ -614,7 +768,7 @@ export function WatchPage() {
         }
       }
     } finally {
-      clearPersistedWatchContext();
+      savePersistedWatchContext({ showBanner: false });
       nav(fromPath, { state: { initialStatus: fromStatus } });
     }
   };
@@ -702,6 +856,7 @@ export function WatchPage() {
             </div>
           ) : !shouldShowIntro ? (
             <YouTube
+              key={`${videoId}-${routeEntryKey}`}
               videoId={videoId}
               onReady={onReady}
               onStateChange={onStateChange}
@@ -709,7 +864,16 @@ export function WatchPage() {
               opts={{
                 width: "100%",
                 height: "500",
-                playerVars: { autoplay: 0, rel: 0, modestbranding: 1 },
+                playerVars: {
+                  autoplay: 0,
+                  controls: 1,
+                  disablekb: 0,
+                  fs: 1,
+                  iv_load_policy: 3,
+                  playsinline: 1,
+                  rel: 0,
+                  modestbranding: 1,
+                },
               }}
               style={{ width: "100%", display: "block" }}
             />
@@ -774,6 +938,9 @@ export function WatchPage() {
                     videoTitle: v.videoTitle,
                     fromStatus,
                     fromPath,
+                    sessionId: v.sessionId,
+                    stemEligible: v.stemEligible,
+                    lastPositionSec: v.lastPositionSec,
                   },
                 })}
               >

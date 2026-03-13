@@ -6,7 +6,7 @@ import toast from "react-hot-toast";
 import { User, Mail, Shield, Activity, Award, ClipboardCheck, BookOpen, Target, ChevronRight, AlertTriangle, Trash2, KeyRound } from "lucide-react";
 import { useAuthStore } from "../../store/useAuthStore";
 import { getDashboard } from "../../api/dashboard";
-import { changePassword, deleteMyAccount, getMe } from "../../api/auth";
+import { deleteMyAccount, getMe } from "../../api/auth";
 import { getApiMessage, getApiStatus } from "../../api/errors";
 import type { DashboardVideo } from "../../types/api";
 
@@ -53,12 +53,6 @@ export function ProfilePage() {
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmNewPassword, setConfirmNewPassword] = useState("");
-  const [changingPassword, setChangingPassword] = useState(false);
-  const [changePasswordError, setChangePasswordError] = useState<string | null>(null);
-  const [changePasswordSuccess, setChangePasswordSuccess] = useState<string | null>(null);
 
   const { data: me } = useQuery({
     queryKey: ["auth", "me", "profile"],
@@ -168,62 +162,6 @@ export function ProfilePage() {
     }
   };
 
-  const handleChangePassword = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (changingPassword) return;
-
-    const trimmedCurrent = currentPassword.trim();
-    const trimmedNew = newPassword.trim();
-    const trimmedConfirm = confirmNewPassword.trim();
-
-    if (!trimmedCurrent || !trimmedNew || !trimmedConfirm) {
-      const message = "All password fields are required";
-      setChangePasswordError(message);
-      setChangePasswordSuccess(null);
-      return;
-    }
-    if (trimmedNew.length < 8) {
-      const message = "New password must be at least 8 characters";
-      setChangePasswordError(message);
-      setChangePasswordSuccess(null);
-      return;
-    }
-    if (trimmedNew !== trimmedConfirm) {
-      const message = "New password and confirm password must match";
-      setChangePasswordError(message);
-      setChangePasswordSuccess(null);
-      return;
-    }
-
-    setChangingPassword(true);
-    setChangePasswordError(null);
-    setChangePasswordSuccess(null);
-    try {
-      const response = await changePassword(trimmedCurrent, trimmedNew);
-      const message = response.message || "Password changed successfully";
-      setChangePasswordSuccess(message);
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmNewPassword("");
-      toast.success(message);
-    } catch (error: any) {
-      const status = getApiStatus(error);
-      const backendMessage = getApiMessage(error, "Failed to change password");
-      const message = status === 429 ? "Too many requests, try later" : backendMessage;
-      setChangePasswordError(message);
-      setChangePasswordSuccess(null);
-      toast.error(message);
-      if (status === 401) {
-        qc.clear();
-        clearAuth();
-        clearProtectedClientData();
-        nav("/login", { replace: true });
-      }
-    } finally {
-      setChangingPassword(false);
-    }
-  };
-
   return (
     <div className="ct-slide-up" style={{ maxWidth: 980, margin: "0 auto" }}>
       <h1 className="ct-page-title">Profile</h1>
@@ -231,11 +169,31 @@ export function ProfilePage() {
 
       <div className="ct-card ct-profile-hero">
         <div className="ct-profile-avatar">{initials}</div>
-        <div>
+        <div className="ct-profile-hero-copy">
           <div className="ct-profile-name">{displayName}</div>
           <div className="ct-profile-email">
             <Mail size={14} />
             {identity?.email || "-"}
+          </div>
+          <div className="ct-profile-hero-actions">
+            <button
+              type="button"
+              className="ct-btn ct-btn-secondary ct-btn-sm ct-profile-change-btn"
+              id="open-change-password-page-btn"
+              onClick={() => nav("/profile/change-password")}
+            >
+              <KeyRound size={14} />
+              Change Password
+            </button>
+            <button
+              type="button"
+              className="ct-btn ct-btn-ghost ct-btn-sm ct-profile-forgot-btn"
+              id="open-forgot-password-page-btn"
+              onClick={() => nav("/forgot-password")}
+            >
+              <Mail size={14} />
+              Forgot Password
+            </button>
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
             <span className="ct-badge ct-badge-active">
@@ -320,84 +278,16 @@ export function ProfilePage() {
         </div>
       </div>
 
-      <div className="ct-card" style={{ marginTop: 16 }}>
-        <h2 className="ct-section-title" style={{ fontSize: 18, marginBottom: 8 }}>
-          <KeyRound size={18} style={{ color: "var(--ct-info)" }} />
-          Change Password
+      <div className="ct-card ct-profile-account-card" style={{ marginTop: 16 }}>
+        <h2 className="ct-section-title ct-profile-account-title" style={{ fontSize: 17, marginBottom: 8 }}>
+          <Trash2 size={17} style={{ color: "var(--ct-text-muted)" }} />
+          Delete Account
         </h2>
-        <p style={{ color: "var(--ct-text-secondary)", fontSize: 13.5, marginBottom: 14 }}>
-          Update your password to keep your account secure.
-        </p>
-        <form onSubmit={handleChangePassword} style={{ maxWidth: 460 }}>
-          <div className="ct-form-group" style={{ marginBottom: 12 }}>
-            <label className="ct-form-label" htmlFor="profile-current-password">Current Password</label>
-            <input
-              id="profile-current-password"
-              className="ct-input"
-              type="password"
-              value={currentPassword}
-              onChange={(event) => setCurrentPassword(event.target.value)}
-              autoComplete="current-password"
-              disabled={changingPassword}
-            />
-          </div>
-          <div className="ct-form-group" style={{ marginBottom: 12 }}>
-            <label className="ct-form-label" htmlFor="profile-new-password">New Password</label>
-            <input
-              id="profile-new-password"
-              className="ct-input"
-              type="password"
-              value={newPassword}
-              onChange={(event) => setNewPassword(event.target.value)}
-              autoComplete="new-password"
-              placeholder="Minimum 8 characters"
-              disabled={changingPassword}
-            />
-          </div>
-          <div className="ct-form-group" style={{ marginBottom: 12 }}>
-            <label className="ct-form-label" htmlFor="profile-confirm-password">Confirm New Password</label>
-            <input
-              id="profile-confirm-password"
-              className="ct-input"
-              type="password"
-              value={confirmNewPassword}
-              onChange={(event) => setConfirmNewPassword(event.target.value)}
-              autoComplete="new-password"
-              disabled={changingPassword}
-            />
-          </div>
-          {changePasswordError && (
-            <div className="ct-banner ct-banner-error" style={{ marginBottom: 12 }}>
-              {changePasswordError}
-            </div>
-          )}
-          {changePasswordSuccess && (
-            <div className="ct-banner ct-banner-success" style={{ marginBottom: 12 }}>
-              {changePasswordSuccess}
-            </div>
-          )}
-          <button
-            type="submit"
-            className="ct-btn ct-btn-primary"
-            id="change-password-btn"
-            disabled={changingPassword}
-          >
-            <KeyRound size={15} />
-            {changingPassword ? "Updating..." : "Update Password"}
-          </button>
-        </form>
-      </div>
-
-      <div className="ct-card" style={{ marginTop: 16, border: "1px solid rgba(239, 68, 68, 0.2)" }}>
-        <h2 className="ct-section-title" style={{ fontSize: 18, marginBottom: 8 }}>
-          <AlertTriangle size={18} style={{ color: "var(--ct-error)" }} />
-          Danger Zone
-        </h2>
-        <p style={{ color: "var(--ct-text-secondary)", fontSize: 13.5, marginBottom: 12 }}>
+        <p className="ct-profile-account-text" style={{ marginBottom: 12 }}>
           Delete your account and all learner data permanently. This action cannot be undone.
         </p>
         <button
-          className="ct-btn ct-btn-danger"
+          className="ct-btn ct-btn-danger ct-btn-sm ct-profile-delete-btn"
           id="delete-account-btn"
           onClick={openDeleteAccountModal}
           disabled={deletingAccount}
