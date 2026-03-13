@@ -19,6 +19,7 @@ type QuizLocationState = {
 type NormalizedQuestionType = "mcq" | "true_false" | "fill_blank" | "short_answer";
 const QUIZ_NAVIGATION_ATTEMPT_LIMIT = 3;
 const QUIZ_ATTEMPT_TRACKER_STORAGE_KEY = "ct_quiz_attempt_tracker_v1";
+const QUIZ_SUBMITTED_ANSWERS_STORAGE_KEY = "ct_quiz_submitted_answers_v1";
 const QUIZ_DEFAULT_MAX_ATTEMPTS = 2;
 const QUIZ_PENDING_PATH = "/my-learnings?status=quiz";
 
@@ -26,6 +27,13 @@ type QuizAttemptStore = Record<string, {
   consumed: number;
   quizIds: Record<string, true>;
 }>;
+type NormalizedAttemptEntry = {
+  entry: {
+    consumed: number;
+    quizIds: Record<string, true>;
+  };
+  migrated: boolean;
+};
 type LockPopupTone = "warning" | "error";
 type LockPopupState = {
   title: string;
@@ -36,28 +44,48 @@ type LockPopupState = {
   closeText?: string;
 };
 
-function normalizeQuizAttemptEntry(raw: unknown): { consumed: number; quizIds: Record<string, true> } {
+function normalizeQuizAttemptEntry(raw: unknown): NormalizedAttemptEntry {
   if (typeof raw === "number" && Number.isFinite(raw)) {
-    return { consumed: Math.max(0, Math.floor(raw)), quizIds: {} };
+    return {
+      entry: { consumed: Math.max(0, Math.floor(raw)), quizIds: {} },
+      migrated: false,
+    };
   }
 
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return { consumed: 0, quizIds: {} };
+    return {
+      entry: { consumed: 0, quizIds: {} },
+      migrated: false,
+    };
   }
 
   const obj = raw as { consumed?: unknown; quizIds?: unknown };
-  const consumed = Number.isFinite(obj.consumed as number)
+  const storedConsumed = Number.isFinite(obj.consumed as number)
     ? Math.max(0, Math.floor(obj.consumed as number))
     : 0;
   const quizIds: Record<string, true> = {};
+  let migrated = false;
   if (obj.quizIds && typeof obj.quizIds === "object" && !Array.isArray(obj.quizIds)) {
     for (const [quizId, flag] of Object.entries(obj.quizIds as Record<string, unknown>)) {
       if (!quizId || !flag) continue;
+      if (quizId.startsWith("close:") || quizId.startsWith("misuse:")) {
+        migrated = true;
+        continue;
+      }
       quizIds[quizId] = true;
     }
   }
 
-  return { consumed, quizIds };
+  const dedupedConsumed = Object.keys(quizIds).length;
+  const consumed = dedupedConsumed > 0 ? dedupedConsumed : storedConsumed;
+  if (dedupedConsumed > 0 && storedConsumed !== dedupedConsumed) {
+    migrated = true;
+  }
+
+  return {
+    entry: { consumed, quizIds },
+    migrated,
+  };
 }
 
 function readQuizAttemptStore(): QuizAttemptStore {
@@ -69,9 +97,15 @@ function readQuizAttemptStore(): QuizAttemptStore {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
     const normalized: QuizAttemptStore = {};
+    let migrated = false;
     for (const [sessionId, entry] of Object.entries(parsed)) {
       if (!sessionId) continue;
-      normalized[sessionId] = normalizeQuizAttemptEntry(entry);
+      const normalizedEntry = normalizeQuizAttemptEntry(entry);
+      normalized[sessionId] = normalizedEntry.entry;
+      if (normalizedEntry.migrated) migrated = true;
+    }
+    if (migrated) {
+      writeQuizAttemptStore(normalized);
     }
     return normalized;
   } catch {
@@ -107,6 +141,42 @@ function markQuizAttemptConsumed(sessionId: string, quizAttemptId: string): numb
   store[sessionId] = entry;
   writeQuizAttemptStore(store);
   return entry.consumed;
+}
+
+function markQuizAttemptGenerated(sessionId: string, quizAttemptId: string): number {
+  const store = readQuizAttemptStore();
+  const entry = store[sessionId] || { consumed: 0, quizIds: {} };
+
+  if (entry.quizIds[quizAttemptId]) {
+    // Backend may return the same quizId for a regenerated/reopened quiz.
+    // Count the user's explicit generate action as a fresh consumed attempt.
+    let retryIndex = 1;
+    let retryMarker = `retry:${quizAttemptId}:${retryIndex}`;
+    while (entry.quizIds[retryMarker]) {
+      retryIndex += 1;
+      retryMarker = `retry:${quizAttemptId}:${retryIndex}`;
+    }
+    entry.quizIds[retryMarker] = true;
+  } else {
+    entry.quizIds[quizAttemptId] = true;
+  }
+
+  entry.consumed += 1;
+  store[sessionId] = entry;
+  writeQuizAttemptStore(store);
+  return entry.consumed;
+}
+
+function cacheSubmittedAnswers(quizId: string, answers: Record<string, string>) {
+  if (typeof window === "undefined") return;
+  try {
+    const raw = window.sessionStorage.getItem(QUIZ_SUBMITTED_ANSWERS_STORAGE_KEY);
+    const parsed = raw ? (JSON.parse(raw) as Record<string, Record<string, string>>) : {};
+    parsed[quizId] = answers;
+    window.sessionStorage.setItem(QUIZ_SUBMITTED_ANSWERS_STORAGE_KEY, JSON.stringify(parsed));
+  } catch {
+    // noop
+  }
 }
 
 function normalizeQuestionType(q: QuizQuestion): NormalizedQuestionType {
@@ -153,6 +223,21 @@ function questionKey(q: QuizQuestion, idx: number): string {
   return key.length > 0 ? key : `q${idx + 1}`;
 }
 
+function isMaxAttemptsSubmitError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("attempt")
+    && (
+      normalized.includes("max")
+      || normalized.includes("no")
+      || normalized.includes("used")
+      || normalized.includes("exhaust")
+      || normalized.includes("failed")
+      || normalized.includes("remaining")
+    )
+  );
+}
+
 export function QuizPage() {
   const { quizId } = useParams();
   const nav = useNavigate();
@@ -177,6 +262,7 @@ export function QuizPage() {
   const [activeQuestionIndex, setActiveQuestionIndex] = useState(0);
   const [quizLockEnabled, setQuizLockEnabled] = useState(true);
   const [consumedAttemptsUsed, setConsumedAttemptsUsed] = useState(0);
+  const [submitBlockedMessage, setSubmitBlockedMessage] = useState<string | null>(null);
   const [lockPopup, setLockPopup] = useState<LockPopupState | null>(null);
   const violationCountRef = useRef(0);
   const quizLockEnabledRef = useRef(true);
@@ -224,6 +310,7 @@ export function QuizPage() {
         if (cancelled) return;
         const consumed = markQuizAttemptConsumed(q.sessionId, q.quizId);
         setConsumedAttemptsUsed(consumed);
+        setSubmitBlockedMessage(null);
         setQuiz(q);
         setSessionIdForGenerate(q.sessionId);
         setNeedsGenerate(false);
@@ -279,10 +366,16 @@ export function QuizPage() {
   const generateQuizAfterConfirmation = useCallback(async (sid: string) => {
     setGenerating(true);
     try {
-      const q = await generateQuiz({ sessionId: sid });
-      const consumed = markQuizAttemptConsumed(q.sessionId, q.quizId);
+      const q = await generateQuiz({
+        sessionId: sid,
+        difficulty: "medium",
+        numQuestions: 10,
+        includeCoding: false,
+      });
+      const consumed = markQuizAttemptGenerated(q.sessionId, q.quizId);
       setConsumedAttemptsUsed(consumed);
       setQuiz(q);
+      setSubmitBlockedMessage(null);
       setAnswers({});
       setActiveQuestionIndex(0);
       setNeedsGenerate(false);
@@ -465,8 +558,7 @@ export function QuizPage() {
       return;
     }
 
-    const violationConsumeKey = `misuse:${quiz?.quizId || sid}`;
-    const consumed = markQuizAttemptConsumed(sid, violationConsumeKey);
+    const consumed = getConsumedQuizAttempts(sid);
     setConsumedAttemptsUsed(consumed);
 
     let effectiveRemainingAfterClose = Math.max(0, QUIZ_DEFAULT_MAX_ATTEMPTS - consumed);
@@ -629,11 +721,13 @@ export function QuizPage() {
   };
 
   const handleSubmit = async () => {
-    if (!quiz || !canSubmit) return;
+    if (!quiz || !canSubmit || submitBlockedMessage) return;
     setSubmitting(true);
 
     try {
       const res = await submitQuiz(quiz.quizId, { answers });
+      cacheSubmittedAnswers(quiz.quizId, answers);
+      setSubmitBlockedMessage(null);
       await qc.invalidateQueries({ queryKey: ["dashboard"] });
       if (res.passed) {
         toast.success(`Passed! Score: ${res.scorePercent.toFixed(0)}%`);
@@ -660,6 +754,7 @@ export function QuizPage() {
       if (isCertificateGenerationError) {
         try {
           const fallbackResult = await getQuizResult(quiz.quizId);
+          cacheSubmittedAnswers(quiz.quizId, answers);
           await qc.invalidateQueries({ queryKey: ["dashboard"] });
           toast.error("Quiz submitted, but certificate PDF generation failed on server. You can retry certificate download.");
           updateQuizLockEnabled(false);
@@ -683,6 +778,9 @@ export function QuizPage() {
       }
 
       toast.error(msg);
+      if (isMaxAttemptsSubmitError(msg)) {
+        setSubmitBlockedMessage("No attempts left for this session. Watch the video again and pass engagement to unlock a new quiz.");
+      }
     } finally {
       setSubmitting(false);
     }
@@ -711,14 +809,12 @@ export function QuizPage() {
       {
         tone: "warning",
         title: "Close Quiz?",
-        message: "Closing now will end this quiz and consume one more attempt.",
+        message: "Closing now will end this quiz screen. This generated attempt is already used.",
         buttonText: "Close Quiz",
         allowClose: true,
         closeText: "Keep Quiz",
       },
       () => {
-        const consumed = markQuizAttemptConsumed(quiz.sessionId, `close:${quiz.quizId}`);
-        setConsumedAttemptsUsed(consumed);
         resetToQuizPendingView();
         nav(QUIZ_PENDING_PATH, { replace: true, state: { initialStatus: "quiz" } });
       },
@@ -948,7 +1044,7 @@ export function QuizPage() {
               <button
                 className="ct-btn ct-btn-primary"
                 onClick={handleSubmit}
-                disabled={!canSubmit || submitting}
+                disabled={!canSubmit || submitting || Boolean(submitBlockedMessage)}
                 id="submit-quiz-btn"
               >
                 <Send size={18} />
@@ -967,6 +1063,20 @@ export function QuizPage() {
             <p style={{ marginTop: 8, fontSize: 12, color: "var(--ct-text-muted)" }}>
               Answer all questions before submitting.
             </p>
+          )}
+
+          {submitBlockedMessage && (
+            <div className="ct-banner ct-banner-error" style={{ marginTop: 10 }}>
+              {submitBlockedMessage}
+            </div>
+          )}
+
+          {submitBlockedMessage && (
+            <div style={{ marginTop: 10 }}>
+              <button className="ct-btn ct-btn-secondary" onClick={goWatchAgain}>
+                <RotateCcw size={14} /> Watch Again
+              </button>
+            </div>
           )}
         </div>
       )}

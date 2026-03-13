@@ -5114,3 +5114,242 @@ div[class*="go"] {
     width: fit-content;
   }
 }
+
+/* Result Page */
+.ct-result-page {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.ct-result-hero {
+  margin-bottom: 18px;
+  text-align: center;
+}
+
+.ct-result-hero-icon {
+  display: block;
+  margin: 0 auto 12px;
+}
+
+.ct-result-hero.passed .ct-result-hero-icon {
+  color: var(--ct-success);
+}
+
+.ct-result-hero.failed .ct-result-hero-icon {
+  color: var(--ct-error);
+}
+
+.ct-result-hero-title {
+  margin-bottom: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1.15;
+  text-align: center;
+}
+
+.ct-result-hero-title.passed {
+  color: var(--ct-success);
+}
+
+.ct-result-hero-title.failed {
+  color: var(--ct-error);
+}
+
+.ct-result-hero-title-icon {
+  flex-shrink: 0;
+  display: block;
+}
+
+.ct-result-score-grid {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.ct-result-score-card {
+  border-radius: var(--ct-radius-sm);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: rgba(255, 255, 255, 0.55);
+  padding: 14px 12px;
+}
+
+.ct-result-score-value {
+  font-size: 34px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.ct-result-score-value.passed {
+  background: var(--ct-gradient-success);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: transparent;
+}
+
+.ct-result-score-value.failed {
+  background: var(--ct-gradient-warm);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: transparent;
+}
+
+.ct-result-score-value.neutral {
+  color: var(--ct-text);
+}
+
+.ct-result-score-label {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--ct-text-muted);
+}
+
+.ct-result-banner {
+  margin-bottom: 18px;
+}
+
+.ct-result-banner-inline {
+  margin-bottom: 12px;
+}
+
+.ct-result-section {
+  margin-bottom: 18px;
+}
+
+.ct-result-section-title {
+  font-size: 18px;
+  margin-bottom: 10px;
+}
+
+.ct-result-explanation-text {
+  color: var(--ct-text-secondary);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.ct-result-review-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.ct-result-review-item {
+  border-radius: var(--ct-radius-sm);
+  padding: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.ct-result-review-item.is-correct {
+  border-color: rgba(16, 185, 129, 0.24);
+  background: rgba(16, 185, 129, 0.06);
+}
+
+.ct-result-review-item.is-incorrect {
+  border-color: rgba(239, 68, 68, 0.24);
+  background: rgba(239, 68, 68, 0.06);
+}
+
+.ct-result-review-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.ct-result-review-question {
+  font-weight: 700;
+}
+
+.ct-result-review-status {
+  font-size: 11px;
+}
+
+.ct-result-review-status.is-correct {
+  background: rgba(16, 185, 129, 0.14);
+  color: #047857;
+}
+
+.ct-result-review-status.is-incorrect {
+  background: rgba(239, 68, 68, 0.14);
+  color: #b91c1c;
+}
+
+.ct-result-review-status.is-submitted {
+  background: rgba(148, 163, 184, 0.16);
+  color: #475569;
+}
+
+.ct-result-review-answer {
+  font-size: 13px;
+  color: var(--ct-text-secondary);
+}
+
+.ct-result-review-details {
+  margin-top: 8px;
+}
+
+.ct-result-review-summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--ct-text-muted);
+  font-weight: 600;
+}
+
+.ct-result-review-explanation {
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: var(--ct-text-secondary);
+  line-height: 1.55;
+}
+
+.ct-result-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.ct-result-actions .ct-btn {
+  min-width: 220px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.ct-result-watchagain-btn {
+  border-width: 1.5px;
+  font-weight: 700;
+}
+
+@media (max-width: 768px) {
+  .ct-result-page {
+    max-width: 100%;
+  }
+
+  .ct-result-hero-title {
+    font-size: 24px;
+  }
+
+  .ct-result-score-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ct-result-actions {
+    flex-direction: column;
+  }
+
+  .ct-result-actions .ct-btn {
+    width: 100%;
+    justify-content: center;
+    min-width: 0;
+  }
+}

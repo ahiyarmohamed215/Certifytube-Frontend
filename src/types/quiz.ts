@@ -1,31 +1,27 @@
-/* ===== Quiz Types — aligned to backend contract ===== */
+/* ===== Quiz Types - aligned to backend contract ===== */
+
+export type QuizQuestionType =
+  | "mcq"
+  | "true_false"
+  | "fill_blank"
+  | "short_answer"
+  | string;
 
 export interface QuizQuestion {
   questionId: string;
-  questionType:
-    | 'mcq'
-    | 'true_false'
-    | 'fill'
-    | 'fill_blank'
-    | 'fill_in_the_blank'
-    | 'short'
-    | 'short_answer'
-    | string;
+  questionType: QuizQuestionType;
   questionText: string;
   options?: string[];
-  correctAnswer?: string;
-  answer?: string;
-  explanation?: string;
 }
 
 export interface QuizGenerateRequest {
   sessionId: string;
-  difficulty?: 'easy' | 'medium' | 'hard';
+  difficulty?: "easy" | "medium" | "hard";
   numQuestions?: number;
   includeCoding?: boolean;
 }
 
-export interface QuizGenerateResponse {
+export interface QuizResponse {
   quizId: string;
   sessionId: string;
   videoId: string;
@@ -39,7 +35,26 @@ export interface QuizSubmitRequest {
   answers: Record<string, string>;
 }
 
-export interface QuizSubmitResponse {
+export interface QuizQuestionReview {
+  questionId: string;
+  questionType: QuizQuestionType;
+  questionText: string;
+  options?: string[];
+  selectedAnswer: string;
+  correctAnswer: string;
+  correct: boolean;
+  explanation: string;
+  // legacy/compatibility fields from older payloads
+  submittedAnswer?: string;
+  userAnswer?: string;
+  answer?: string;
+  expectedAnswer?: string;
+  isCorrect?: boolean;
+  reason?: string;
+  feedback?: string;
+}
+
+export interface QuizResultResponse {
   quizId: string;
   correctCount: number;
   totalCount: number;
@@ -47,12 +62,13 @@ export interface QuizSubmitResponse {
   passed: boolean;
   certificateId: string | null;
   verificationLink: string | null;
+  review?: QuizQuestionReview[];
+  // legacy fallback fields still tolerated from older backend responses
   explanation?: string | null;
   feedback?: string | null;
-  review?: QuizReviewItem[];
-  questionResults?: QuizReviewItem[];
-  wrongQuestions?: QuizReviewItem[];
-  incorrectQuestions?: QuizReviewItem[];
+  questionResults?: QuizQuestionReview[];
+  wrongQuestions?: QuizQuestionReview[];
+  incorrectQuestions?: QuizQuestionReview[];
   answers?: Record<string, string>;
   userAnswers?: Record<string, string>;
   correctAnswers?: Record<string, string>;
@@ -60,23 +76,12 @@ export interface QuizSubmitResponse {
   incorrectQuestionIds?: string[];
 }
 
-export interface QuizReviewItem {
-  questionId?: string;
-  questionText?: string;
-  selectedAnswer?: string;
-  submittedAnswer?: string;
-  userAnswer?: string;
-  answer?: string;
-  correctAnswer?: string;
-  expectedAnswer?: string;
-  isCorrect?: boolean;
-  correct?: boolean;
-  explanation?: string;
-  reason?: string;
-  feedback?: string;
-}
+// Backward compatible aliases used across existing pages.
+export type QuizGenerateResponse = QuizResponse;
+export type QuizSubmitResponse = QuizResultResponse;
+export type QuizReviewItem = QuizQuestionReview;
 
-export interface QuizEligibility {
+export interface QuizEligibilityResponse {
   sessionId: string;
   eligible: boolean;
   reason: string;
@@ -88,3 +93,5 @@ export interface QuizEligibility {
   remainingAttempts: number;
   stemEligible: boolean;
 }
+
+export type QuizEligibility = QuizEligibilityResponse;

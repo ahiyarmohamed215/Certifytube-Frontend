@@ -33,9 +33,36 @@ function getConsumedQuizAttempts(sessionId: string | null): number {
       return Math.max(0, Math.floor(entry));
     }
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) return 0;
-    const consumed = (entry as { consumed?: unknown }).consumed;
-    if (!Number.isFinite(consumed as number)) return 0;
-    return Math.max(0, Math.floor(consumed as number));
+    const obj = entry as { consumed?: unknown; quizIds?: unknown };
+    const storedConsumed = Number.isFinite(obj.consumed as number)
+      ? Math.max(0, Math.floor(obj.consumed as number))
+      : 0;
+
+    const validQuizIds: Record<string, true> = {};
+    let migrated = false;
+    if (obj.quizIds && typeof obj.quizIds === "object" && !Array.isArray(obj.quizIds)) {
+      for (const [quizId, flag] of Object.entries(obj.quizIds as Record<string, unknown>)) {
+        if (!quizId || !flag) continue;
+        if (quizId.startsWith("close:") || quizId.startsWith("misuse:")) {
+          migrated = true;
+          continue;
+        }
+        validQuizIds[quizId] = true;
+      }
+    }
+
+    const dedupedConsumed = Object.keys(validQuizIds).length;
+    const consumed = dedupedConsumed > 0 ? dedupedConsumed : storedConsumed;
+    if (dedupedConsumed > 0 && storedConsumed !== dedupedConsumed) {
+      migrated = true;
+    }
+
+    if (migrated) {
+      parsed[sessionId] = { consumed, quizIds: validQuizIds };
+      localStorage.setItem(QUIZ_ATTEMPT_TRACKER_STORAGE_KEY, JSON.stringify(parsed));
+    }
+
+    return consumed;
   } catch {
     return 0;
   }
@@ -49,6 +76,8 @@ type ReviewRow = {
   isCorrect: boolean | null;
   explanation: string | null;
 };
+
+const QUIZ_SUBMITTED_ANSWERS_STORAGE_KEY = "ct_quiz_submitted_answers_v1";
 
 function asText(value: unknown): string {
   if (value == null) return "";
@@ -73,22 +102,55 @@ function toRecord(value: unknown): Record<string, string> | null {
   return out;
 }
 
-function reviewArraySource(raw: any): { key: string; items: any[] } | null {
-  const keys = [
-    "review",
-    "questionResults",
-    "answerReview",
-    "evaluation",
-    "wrongQuestions",
-    "incorrectQuestions",
-  ];
-  for (const key of keys) {
-    const val = raw?.[key];
-    if (Array.isArray(val) && val.length > 0) {
-      return { key, items: val };
-    }
+function readSubmittedAnswersCache(quizId: string | null | undefined): Record<string, string> | null {
+  if (!quizId || typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(QUIZ_SUBMITTED_ANSWERS_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const entry = parsed?.[quizId];
+    return toRecord(entry);
+  } catch {
+    return null;
   }
-  return null;
+}
+
+function writeSubmittedAnswersCache(quizId: string | null | undefined, answers: Record<string, string>) {
+  if (!quizId || typeof window === "undefined" || Object.keys(answers).length === 0) return;
+  try {
+    const raw = window.sessionStorage.getItem(QUIZ_SUBMITTED_ANSWERS_STORAGE_KEY);
+    const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+    parsed[quizId] = answers;
+    window.sessionStorage.setItem(QUIZ_SUBMITTED_ANSWERS_STORAGE_KEY, JSON.stringify(parsed));
+  } catch {
+    // noop
+  }
+}
+
+function reviewItemId(item: QuizReviewItem, idx: number): string {
+  return (
+    asText(item.questionId)
+    || `q${idx + 1}`
+  );
+}
+
+function collectReviewItems(result: QuizSubmitResponse): QuizReviewItem[] {
+  if (Array.isArray(result.review) && result.review.length > 0) {
+    return result.review;
+  }
+
+  const fallbackArrays: Array<QuizReviewItem[] | undefined> = [
+    result.questionResults,
+    result.wrongQuestions,
+    result.incorrectQuestions,
+  ];
+
+  const merged: QuizReviewItem[] = [];
+  for (const arr of fallbackArrays) {
+    if (!Array.isArray(arr)) continue;
+    merged.push(...arr);
+  }
+  return merged;
 }
 
 function buildReviewRows(
@@ -97,149 +159,113 @@ function buildReviewRows(
   submittedAnswers: Record<string, string>,
 ): ReviewRow[] {
   if (!result) return [];
-  const raw: any = result;
-
-  const questionTextById = new Map<string, string>();
-  for (let i = 0; i < quizQuestions.length; i += 1) {
-    const q = quizQuestions[i];
-    const key = questionKey(q, i);
-    questionTextById.set(key, asText(q.questionText) || `Question ${i + 1}`);
-    questionTextById.set(`q${i + 1}`, asText(q.questionText) || `Question ${i + 1}`);
-    if (asText(q.questionId)) questionTextById.set(asText(q.questionId), asText(q.questionText) || `Question ${i + 1}`);
-  }
-
-  const answersFromResult = toRecord(raw?.answers) || toRecord(raw?.userAnswers) || {};
+  const answersFromResult = toRecord(result.answers) || toRecord(result.userAnswers) || {};
   const mergedAnswers: Record<string, string> = { ...answersFromResult, ...submittedAnswers };
 
-  const source = reviewArraySource(raw);
-  if (source) {
-    const assumeWrong = source.key === "wrongQuestions" || source.key === "incorrectQuestions";
+  const reviewByQuestionId = new Map<string, QuizReviewItem>();
+  const reviewItems = collectReviewItems(result);
+  reviewItems.forEach((item, idx) => {
+    const id = reviewItemId(item, idx);
+    reviewByQuestionId.set(id, item);
+  });
 
-    return source.items.map((item: QuizReviewItem | any, idx: number) => {
-      const sourceId =
-        asText(item?.questionId)
-        || asText(item?.id)
-        || asText(item?.qid)
-        || asText(item?.questionKey)
-        || asText(item?.key)
-        || `q${idx + 1}`;
+  const rows: ReviewRow[] = [];
+  const seenQuestionIds = new Set<string>();
 
-      const text =
-        asText(item?.questionText)
-        || asText(item?.question)
-        || asText(item?.text)
-        || questionTextById.get(sourceId)
-        || questionTextById.get(`q${idx + 1}`)
-        || `Question ${idx + 1}`;
+  for (let idx = 0; idx < quizQuestions.length; idx += 1) {
+    const q = quizQuestions[idx];
+    const id = questionKey(q, idx);
+    const fallbackId = `q${idx + 1}`;
+    const reviewItem = reviewByQuestionId.get(id) || reviewByQuestionId.get(fallbackId);
 
-      const your =
-        asText(item?.selectedAnswer)
-        || asText(item?.submittedAnswer)
-        || asText(item?.userAnswer)
-        || asText(item?.answer)
-        || asText(mergedAnswers[sourceId]);
+    const yourAnswer =
+      asText(reviewItem?.selectedAnswer)
+      || asText(reviewItem?.submittedAnswer)
+      || asText(reviewItem?.userAnswer)
+      || asText(reviewItem?.answer)
+      || asText(mergedAnswers[id])
+      || asText(mergedAnswers[fallbackId]);
 
-      const correct = asText(item?.correctAnswer) || asText(item?.expectedAnswer) || "";
+    const correctAnswer =
+      asText(reviewItem?.correctAnswer)
+      || asText(reviewItem?.expectedAnswer);
 
-      let isCorrect: boolean | null = null;
-      if (typeof item?.isCorrect === "boolean") {
-        isCorrect = item.isCorrect;
-      } else if (typeof item?.correct === "boolean") {
-        isCorrect = item.correct;
-      } else if (assumeWrong) {
-        isCorrect = false;
-      } else if (your && correct) {
-        isCorrect = answerNorm(your) === answerNorm(correct);
-      }
+    let isCorrect: boolean | null = null;
+    if (typeof reviewItem?.correct === "boolean") {
+      isCorrect = reviewItem.correct;
+    } else if (typeof reviewItem?.isCorrect === "boolean") {
+      isCorrect = reviewItem.isCorrect;
+    } else if (yourAnswer && correctAnswer) {
+      isCorrect = answerNorm(yourAnswer) === answerNorm(correctAnswer);
+    }
 
-      const explanation = asText(item?.explanation) || asText(item?.reason) || asText(item?.feedback);
-
-      return {
-        questionId: sourceId,
-        questionText: text,
-        yourAnswer: your,
-        correctAnswer: correct || null,
-        isCorrect,
-        explanation: explanation || null,
-      };
-    });
-  }
-
-  const correctAnswers = toRecord(raw?.correctAnswers);
-  if (correctAnswers) {
-    const keys = new Set<string>([
-      ...Object.keys(correctAnswers),
-      ...Object.keys(mergedAnswers),
-      ...quizQuestions.map((q, idx) => questionKey(q, idx)),
-    ]);
-
-    return [...keys].map((id, idx) => {
-      const your = asText(mergedAnswers[id]);
-      const correct = asText(correctAnswers[id]);
-      const text = questionTextById.get(id) || questionTextById.get(`q${idx + 1}`) || `Question ${idx + 1}`;
-
-      let isCorrect: boolean | null = null;
-      if (your && correct) {
-        isCorrect = answerNorm(your) === answerNorm(correct);
-      }
-
-      return {
-        questionId: id,
-        questionText: text,
-        yourAnswer: your,
-        correctAnswer: correct || null,
-        isCorrect,
-        explanation: null,
-      };
-    });
-  }
-
-  const wrongIds = Array.isArray(raw?.wrongQuestionIds)
-    ? raw.wrongQuestionIds
-    : Array.isArray(raw?.incorrectQuestionIds)
-      ? raw.incorrectQuestionIds
-      : [];
-  if (wrongIds.length > 0) {
-    return wrongIds.map((id: string, idx: number) => ({
+    const row: ReviewRow = {
       questionId: id,
-      questionText: questionTextById.get(id) || questionTextById.get(`q${idx + 1}`) || id,
-      yourAnswer: asText(mergedAnswers[id]),
-      correctAnswer: null,
-      isCorrect: false,
-      explanation: null,
-    }));
+      questionText: asText(reviewItem?.questionText) || asText(q.questionText) || `Question ${idx + 1}`,
+      yourAnswer,
+      correctAnswer: correctAnswer || null,
+      isCorrect,
+      explanation:
+        asText(reviewItem?.explanation)
+        || asText(reviewItem?.reason)
+        || asText(reviewItem?.feedback)
+        || null,
+    };
+
+    rows.push(row);
+    seenQuestionIds.add(id);
+    seenQuestionIds.add(fallbackId);
   }
 
-  if (quizQuestions.length > 0) {
-    const fallbackRows = quizQuestions.map((q, idx) => {
-      const id = questionKey(q, idx);
-      const your =
-        asText(mergedAnswers[id])
-        || asText(mergedAnswers[asText(q.questionId)])
-        || asText(mergedAnswers[`q${idx + 1}`]);
-      const correct = asText(q.correctAnswer) || asText(q.answer);
+  for (let idx = 0; idx < reviewItems.length; idx += 1) {
+    const item = reviewItems[idx];
+    const id = reviewItemId(item, idx);
+    if (seenQuestionIds.has(id)) continue;
 
-      let isCorrect: boolean | null = null;
-      if (your && correct) {
-        isCorrect = answerNorm(your) === answerNorm(correct);
-      }
+    const yourAnswer =
+      asText(item.selectedAnswer)
+      || asText(item.submittedAnswer)
+      || asText(item.userAnswer)
+      || asText(item.answer)
+      || asText(mergedAnswers[id]);
+    const correctAnswer =
+      asText(item.correctAnswer)
+      || asText(item.expectedAnswer);
 
-      return {
+    let isCorrect: boolean | null = null;
+    if (typeof item.correct === "boolean") {
+      isCorrect = item.correct;
+    } else if (typeof item.isCorrect === "boolean") {
+      isCorrect = item.isCorrect;
+    } else if (yourAnswer && correctAnswer) {
+      isCorrect = answerNorm(yourAnswer) === answerNorm(correctAnswer);
+    }
+
+    rows.push({
+      questionId: id,
+      questionText: asText(item.questionText) || id,
+      yourAnswer,
+      correctAnswer: correctAnswer || null,
+      isCorrect,
+      explanation: asText(item.explanation) || asText(item.reason) || asText(item.feedback) || null,
+    });
+    seenQuestionIds.add(id);
+  }
+
+  if (rows.length === 0) {
+    for (const [id, ans] of Object.entries(mergedAnswers)) {
+      rows.push({
         questionId: id,
-        questionText: asText(q.questionText) || `Question ${idx + 1}`,
-        yourAnswer: your,
-        correctAnswer: correct || null,
-        isCorrect,
-        explanation: asText(q.explanation) || null,
-      };
-    }).filter((row) => row.yourAnswer || row.correctAnswer);
-
-    if (fallbackRows.length > 0) {
-      return fallbackRows;
+        questionText: id,
+        yourAnswer: ans,
+        correctAnswer: null,
+        isCorrect: null,
+        explanation: null,
+      });
     }
   }
 
-  return [];
+  return rows;
 }
 
 export function ResultPage() {
@@ -269,6 +295,9 @@ export function ResultPage() {
   const submitError = locationState?.submitError || "";
 
   const [loading, setLoading] = useState(!stateResult);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reviewLoadError, setReviewLoadError] = useState<string | null>(null);
+  const [eligibilityLoading, setEligibilityLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [resolvingCertificate, setResolvingCertificate] = useState(false);
 
@@ -281,8 +310,10 @@ export function ResultPage() {
         const r = await getQuizResult(quizId);
         if (cancelled) return;
         setResult(r);
+        setLoadError(null);
       } catch (e: any) {
         if (cancelled) return;
+        setLoadError(e?.message || "Failed to load result");
         toast.error(e?.message || "Failed to load result");
       } finally {
         if (!cancelled) setLoading(false);
@@ -308,8 +339,10 @@ export function ResultPage() {
           videoId: q.videoId,
           videoTitle: q.videoTitle,
         });
+        setReviewLoadError(null);
       } catch {
-        // quiz detail not critical for result header
+        if (cancelled) return;
+        setReviewLoadError("Question details could not be loaded for this result.");
       }
     })();
 
@@ -323,6 +356,17 @@ export function ResultPage() {
     const fromResult = toRecord((result as any)?.answers) || toRecord((result as any)?.userAnswers);
     if (fromResult) setSubmittedAnswers(fromResult);
   }, [result, submittedAnswers]);
+
+  useEffect(() => {
+    if (!quizId || Object.keys(submittedAnswers).length > 0) return;
+    const cached = readSubmittedAnswersCache(quizId);
+    if (cached) setSubmittedAnswers(cached);
+  }, [quizId, submittedAnswers]);
+
+  useEffect(() => {
+    if (!quizId || Object.keys(submittedAnswers).length === 0) return;
+    writeSubmittedAnswersCache(quizId, submittedAnswers);
+  }, [quizId, submittedAnswers]);
 
   useEffect(() => {
     if (!quizId || !result?.passed || result.certificateId) return;
@@ -341,6 +385,7 @@ export function ResultPage() {
     if (!quizMeta?.sessionId || !result || result.passed) return;
 
     let cancelled = false;
+    setEligibilityLoading(true);
     (async () => {
       try {
         const res = await getQuizEligibility(quizMeta.sessionId);
@@ -349,6 +394,8 @@ export function ResultPage() {
       } catch {
         if (cancelled) return;
         setEligibility(null);
+      } finally {
+        if (!cancelled) setEligibilityLoading(false);
       }
     })();
 
@@ -373,16 +420,6 @@ export function ResultPage() {
     [result, quizQuestions, submittedAnswers],
   );
 
-  const wrongRows = useMemo(
-    () => reviewRows.filter((row) => row.isCorrect === false),
-    [reviewRows],
-  );
-
-  const canShowWrongRows = useMemo(
-    () => wrongRows.length > 0,
-    [wrongRows],
-  );
-
   const consumedAttemptsUsed = useMemo(
     () => getConsumedQuizAttempts(quizMeta?.sessionId || null),
     [quizMeta?.sessionId],
@@ -398,6 +435,7 @@ export function ResultPage() {
     0,
     Math.min(backendRemainingAttempts, maxFailedAttempts - consumedAttemptsUsed),
   );
+  const canRevealReview = Boolean(result?.passed) || (!eligibilityLoading && remainingQuizAttempts <= 0);
 
   const refreshResultOnce = async (): Promise<QuizSubmitResponse | null> => {
     if (!quizId) return result;
@@ -527,7 +565,7 @@ export function ResultPage() {
   if (!result) return <div className="ct-empty">Result not found</div>;
 
   return (
-    <div className="ct-slide-up" style={{ maxWidth: 900, margin: "0 auto" }}>
+    <div className="ct-slide-up ct-result-page">
       <div className="ct-analyze-topbar">
         <button className="ct-btn ct-btn-secondary ct-btn-sm ct-analyze-back-btn" onClick={goBack}>
           <ArrowLeft size={14} /> Back
@@ -537,111 +575,134 @@ export function ResultPage() {
         </button>
       </div>
 
-      <div className="ct-glass-card" style={{ marginBottom: 18, textAlign: "center" }}>
+      <div className={`ct-glass-card ct-result-hero ${result.passed ? "passed" : "failed"}`}>
         {result.passed ? (
           <>
-            <Award size={62} style={{ color: "var(--ct-success)", marginBottom: 12 }} />
-            <h1 style={{ fontSize: 28, fontWeight: 800, color: "var(--ct-success)", marginBottom: 8 }}>
-              <CheckCircle size={26} style={{ verticalAlign: "middle", marginRight: 8 }} />
+            <Award size={62} className="ct-result-hero-icon" />
+            <h1 className="ct-result-hero-title passed">
+              <CheckCircle size={24} className="ct-result-hero-title-icon" />
               Quiz Passed
             </h1>
           </>
         ) : (
           <>
-            <XCircle size={62} style={{ color: "var(--ct-error)", marginBottom: 12 }} />
-            <h1 style={{ fontSize: 28, fontWeight: 800, color: "var(--ct-error)", marginBottom: 8 }}>
+            <XCircle size={62} className="ct-result-hero-icon" />
+            <h1 className="ct-result-hero-title failed">
+              <XCircle size={24} className="ct-result-hero-title-icon" />
               Quiz Not Passed
             </h1>
           </>
         )}
 
-        <div style={{ marginTop: 18, display: "flex", justifyContent: "center", gap: 30 }}>
-          <div>
-            <div
-              style={{
-                fontSize: 34,
-                fontWeight: 800,
-                background: result.passed ? "var(--ct-gradient-success)" : "var(--ct-gradient-warm)",
-                WebkitBackgroundClip: "text",
-                WebkitTextFillColor: "transparent",
-              }}
-            >
+        <div className="ct-result-score-grid">
+          <div className="ct-result-score-card">
+            <div className={`ct-result-score-value ${result.passed ? "passed" : "failed"}`}>
               {result.scorePercent.toFixed(0)}%
             </div>
-            <div style={{ fontSize: 12, color: "var(--ct-text-muted)" }}>Score</div>
+            <div className="ct-result-score-label">Score</div>
           </div>
-          <div>
-            <div style={{ fontSize: 34, fontWeight: 800, color: "var(--ct-text)" }}>
+          <div className="ct-result-score-card">
+            <div className="ct-result-score-value neutral">
               {result.correctCount}/{result.totalCount}
             </div>
-            <div style={{ fontSize: 12, color: "var(--ct-text-muted)" }}>Correct</div>
+            <div className="ct-result-score-label">Correct</div>
           </div>
         </div>
       </div>
 
       {submitError && (
-        <div className="ct-banner ct-banner-warning" style={{ marginBottom: 18 }}>
+        <div className="ct-banner ct-banner-warning ct-result-banner">
           {submitError}
         </div>
       )}
 
-      <div className="ct-card" style={{ marginBottom: 18 }}>
-        <h2 className="ct-section-title" style={{ fontSize: 18, marginBottom: 10 }}>Result Explanation</h2>
-        <p style={{ color: "var(--ct-text-secondary)", fontSize: 14, lineHeight: 1.6 }}>
+      {loadError && (
+        <div className="ct-banner ct-banner-error ct-result-banner">
+          {loadError}
+        </div>
+      )}
+
+      <div className="ct-card ct-result-section">
+        <h2 className="ct-section-title ct-result-section-title">Result Explanation</h2>
+        <p className="ct-result-explanation-text">
           {explanation}
         </p>
       </div>
 
       {!result.passed && (
-        <div className="ct-banner ct-banner-info" style={{ marginBottom: 18 }}>
+        <div className="ct-banner ct-banner-info ct-result-banner">
           Remaining quiz attempts: {remainingQuizAttempts} / {maxFailedAttempts}
         </div>
       )}
 
-      {!result.passed && (
-        <div className="ct-card" style={{ marginBottom: 18 }}>
-          <h2 className="ct-section-title" style={{ fontSize: 18, marginBottom: 10 }}>Incorrect Questions</h2>
+      <div className="ct-card ct-result-section">
+        <h2 className="ct-section-title ct-result-section-title">Question Review</h2>
 
-          {canShowWrongRows ? (
-            <div style={{ display: "grid", gap: 10 }}>
-              {wrongRows.map((row, idx) => (
+        {!canRevealReview && (
+          <div className="ct-banner ct-banner-info ct-result-banner-inline">
+            Question review is locked until you pass the quiz or use all attempts.
+          </div>
+        )}
+
+        {canRevealReview && reviewLoadError && (
+          <div className="ct-banner ct-banner-warning ct-result-banner-inline">
+            {reviewLoadError}
+          </div>
+        )}
+
+        {canRevealReview && reviewRows.length > 0 ? (
+          <div className="ct-result-review-grid">
+            {reviewRows.map((row, idx) => {
+              const statusText = row.isCorrect === true ? "Correct" : row.isCorrect === false ? "Incorrect" : "Submitted";
+              const toneClass = row.isCorrect === true
+                ? "is-correct"
+                : row.isCorrect === false
+                  ? "is-incorrect"
+                  : "is-submitted";
+
+              return (
                 <div
                   key={`${row.questionId}-${idx}`}
-                  style={{
-                    border: "1px solid rgba(239, 68, 68, 0.24)",
-                    background: "rgba(239, 68, 68, 0.06)",
-                    borderRadius: "var(--ct-radius-sm)",
-                    padding: 12,
-                  }}
+                  className={`ct-result-review-item ${toneClass}`}
                 >
-                  <div style={{ fontWeight: 700, marginBottom: 6 }}>
-                    Q{idx + 1}. {row.questionText}
+                  <div className="ct-result-review-top">
+                    <div className="ct-result-review-question">
+                      Q{idx + 1}. {row.questionText}
+                    </div>
+                    <span className={`ct-badge ct-result-review-status ${toneClass}`}>{statusText}</span>
                   </div>
-                  <div style={{ fontSize: 13, color: "var(--ct-text-secondary)" }}>
+                  <div className="ct-result-review-answer">
                     Your answer: <strong>{row.yourAnswer || "-"}</strong>
                   </div>
                   {row.correctAnswer && (
-                    <div style={{ fontSize: 13, color: "var(--ct-text-secondary)" }}>
+                    <div className="ct-result-review-answer">
                       Correct answer: <strong>{row.correctAnswer}</strong>
                     </div>
                   )}
                   {row.explanation && (
-                    <div style={{ fontSize: 12, color: "var(--ct-text-muted)", marginTop: 6 }}>
-                      {row.explanation}
-                    </div>
+                    <details className="ct-result-review-details">
+                      <summary className="ct-result-review-summary">
+                        Explanation
+                      </summary>
+                      <p className="ct-result-review-explanation">
+                        {row.explanation}
+                      </p>
+                    </details>
                   )}
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className="ct-banner ct-banner-warning">
-              Detailed question-level review is unavailable for this attempt.
-            </div>
-          )}
-        </div>
-      )}
+              );
+            })}
+          </div>
+        ) : null}
 
-      <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
+        {canRevealReview && reviewRows.length === 0 ? (
+          <div className="ct-banner ct-banner-warning">
+            Question-level review is unavailable for this result.
+          </div>
+        ) : null}
+      </div>
+
+      <div className="ct-result-actions">
         {!result.passed && remainingQuizAttempts > 0 && (
           <button className="ct-btn ct-btn-primary" onClick={handleRetryQuiz} id="retry-quiz-btn">
             <RotateCcw size={16} /> Re-Take Quiz
@@ -649,7 +710,7 @@ export function ResultPage() {
         )}
 
         {!result.passed && remainingQuizAttempts <= 0 && (
-          <button className="ct-btn ct-btn-secondary" onClick={handleWatchAgain} id="watch-again-btn">
+          <button className="ct-btn ct-btn-secondary ct-result-watchagain-btn" onClick={handleWatchAgain} id="watch-again-btn">
             <RotateCcw size={16} /> Watch Again
           </button>
         )}
