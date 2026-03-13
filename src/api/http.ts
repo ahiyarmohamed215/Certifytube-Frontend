@@ -2,6 +2,13 @@ import axios from "axios";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
+export type ApiClientError = Error & {
+  status?: number;
+  method?: string;
+  requestUrl?: string;
+  data?: unknown;
+};
+
 export const http = axios.create({
   baseURL: BASE_URL,
   timeout: 30000,
@@ -103,6 +110,11 @@ http.interceptors.response.use(
       finalMsg = `${msg} (${status}) - ${method} ${requestUrl}`;
     }
 
-    return Promise.reject(new Error(finalMsg));
+    const out = new Error(finalMsg) as ApiClientError;
+    out.status = typeof status === "number" ? status : undefined;
+    out.method = method || undefined;
+    out.requestUrl = requestUrl || undefined;
+    out.data = err.response?.data;
+    return Promise.reject(out);
   }
 );

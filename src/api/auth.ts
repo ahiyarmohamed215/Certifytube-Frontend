@@ -58,3 +58,7 @@ export async function getMe(): Promise<UserInfo> {
 export async function logout(): Promise<void> {
     await http.post("/api/auth/logout");
 }
+
+export async function deleteMyAccount(): Promise<void> {
+    await http.delete("/api/auth/me");
+}

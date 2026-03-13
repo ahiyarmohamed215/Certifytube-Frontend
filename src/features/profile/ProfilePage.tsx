@@ -1,10 +1,13 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { User, Mail, Shield, Activity, Award, ClipboardCheck, BookOpen, Target, ChevronRight } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import toast from "react-hot-toast";
+import { User, Mail, Shield, Activity, Award, ClipboardCheck, BookOpen, Target, ChevronRight, AlertTriangle, Trash2 } from "lucide-react";
 import { useAuthStore } from "../../store/useAuthStore";
 import { getDashboard } from "../../api/dashboard";
-import { getMe } from "../../api/auth";
+import { deleteMyAccount, getMe } from "../../api/auth";
+import type { ApiClientError } from "../../api/http";
 import type { DashboardVideo } from "../../types/api";
 
 const ENGAGEMENT_THRESHOLD = 0.85;
@@ -25,9 +28,31 @@ function latestSessionByVideo(videos: DashboardVideo[]) {
   return out;
 }
 
+function clearProtectedClientData() {
+  if (typeof window === "undefined") return;
+
+  const localKeys: string[] = [];
+  for (let idx = 0; idx < window.localStorage.length; idx += 1) {
+    const key = window.localStorage.key(idx);
+    if (key && key.startsWith("ct_")) localKeys.push(key);
+  }
+  localKeys.forEach((key) => window.localStorage.removeItem(key));
+
+  try {
+    window.sessionStorage.clear();
+  } catch {
+    // ignore cleanup failures
+  }
+}
+
 export function ProfilePage() {
   const nav = useNavigate();
-  const { user, setUser } = useAuthStore();
+  const qc = useQueryClient();
+  const { user, setUser, clearAuth } = useAuthStore();
+  const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const { data: me } = useQuery({
     queryKey: ["auth", "me", "profile"],
@@ -94,6 +119,49 @@ export function ProfilePage() {
   const identity = me || user;
   const displayName = identity?.name?.trim() || identity?.email?.split("@")[0] || "Learner";
   const initials = displayName.slice(0, 2).toUpperCase();
+  const confirmDeleteEnabled = deleteConfirmText.trim().toUpperCase() === "DELETE";
+
+  const openDeleteAccountModal = () => {
+    setDeleteError(null);
+    setDeleteConfirmText("");
+    setDeleteAccountOpen(true);
+  };
+
+  const closeDeleteAccountModal = () => {
+    if (deletingAccount) return;
+    setDeleteAccountOpen(false);
+    setDeleteConfirmText("");
+    setDeleteError(null);
+  };
+
+  const confirmDeleteAccount = async () => {
+    if (deletingAccount || !confirmDeleteEnabled) return;
+    setDeletingAccount(true);
+    setDeleteError(null);
+    try {
+      await deleteMyAccount();
+      qc.clear();
+      clearAuth();
+      clearProtectedClientData();
+      toast.success("Account deleted successfully");
+      setDeleteAccountOpen(false);
+      nav("/login", { replace: true });
+    } catch (error: any) {
+      const err = error as ApiClientError;
+      const status = Number(err?.status || 0);
+      const message = err?.message || "Failed to delete account";
+      setDeleteError(message);
+      toast.error(message);
+      if (status === 401) {
+        qc.clear();
+        clearAuth();
+        clearProtectedClientData();
+        nav("/login", { replace: true });
+      }
+    } finally {
+      setDeletingAccount(false);
+    }
+  };
 
   return (
     <div className="ct-slide-up" style={{ maxWidth: 980, margin: "0 auto" }}>
@@ -190,6 +258,70 @@ export function ProfilePage() {
           </div>
         </div>
       </div>
+
+      <div className="ct-card" style={{ marginTop: 16, border: "1px solid rgba(239, 68, 68, 0.2)" }}>
+        <h2 className="ct-section-title" style={{ fontSize: 18, marginBottom: 8 }}>
+          <AlertTriangle size={18} style={{ color: "var(--ct-error)" }} />
+          Danger Zone
+        </h2>
+        <p style={{ color: "var(--ct-text-secondary)", fontSize: 13.5, marginBottom: 12 }}>
+          Delete your account and all learner data permanently. This action cannot be undone.
+        </p>
+        <button
+          className="ct-btn ct-btn-danger"
+          id="delete-account-btn"
+          onClick={openDeleteAccountModal}
+          disabled={deletingAccount}
+        >
+          <Trash2 size={15} />
+          Delete Account
+        </button>
+      </div>
+
+      {deleteAccountOpen && createPortal(
+        <div className="ct-modal-backdrop" onClick={closeDeleteAccountModal}>
+          <div className="ct-modal-card ct-delete-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="ct-delete-modal-icon">
+              <AlertTriangle size={22} />
+            </div>
+            <h3 className="ct-delete-modal-title">Delete Account?</h3>
+            <p className="ct-delete-modal-text">
+              This will permanently remove your account, sessions, quizzes, and certificates.
+            </p>
+            <p className="ct-delete-modal-subtext">
+              Type <span className="ct-modal-code">DELETE</span> to confirm.
+            </p>
+            <input
+              className="ct-input"
+              value={deleteConfirmText}
+              onChange={(event) => setDeleteConfirmText(event.target.value)}
+              placeholder="Type DELETE to confirm"
+              autoFocus
+              disabled={deletingAccount}
+            />
+            {deleteError && (
+              <div className="ct-banner ct-banner-error" style={{ marginTop: 12, marginBottom: 0 }}>
+                {deleteError}
+              </div>
+            )}
+            <div className="ct-modal-actions" style={{ marginTop: 16 }}>
+              <button className="ct-btn ct-btn-secondary" onClick={closeDeleteAccountModal} disabled={deletingAccount}>
+                Cancel
+              </button>
+              <button
+                className="ct-btn ct-btn-danger"
+                id="confirm-delete-account-btn"
+                onClick={confirmDeleteAccount}
+                disabled={deletingAccount || !confirmDeleteEnabled}
+              >
+                <Trash2 size={15} />
+                {deletingAccount ? "Deleting..." : "Delete Account"}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }

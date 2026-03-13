@@ -29,3 +29,7 @@ export async function verifyCertificate(token: string): Promise<CertificateInfo>
   const res = await http.get<CertificateInfo>(`/api/certificates/verify/${token}`);
   return res.data;
 }
+
+export async function deleteCertificate(certificateId: string): Promise<void> {
+  await http.delete(`/api/certificates/${certificateId}`);
+}

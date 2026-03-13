@@ -1,15 +1,17 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, CheckCircle2, Clock, Download, ExternalLink, Printer, Share2, X, XCircle } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, ArrowLeft, CheckCircle2, Clock, Download, ExternalLink, Printer, Share2, Trash2, X, XCircle } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import toast from "react-hot-toast";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 
-import { getCertificate } from "../../api/certificate";
+import { deleteCertificate, getCertificate } from "../../api/certificate";
 import { getMe } from "../../api/auth";
 import { useAuthStore } from "../../store/useAuthStore";
+import type { ApiClientError } from "../../api/http";
 
 function fmtPct(v: number | undefined | null): string {
   if (v == null || v === 0) return "-";
@@ -33,6 +35,7 @@ type CertificateLocationState = {
 export function CertificatePage() {
   const { certificateId } = useParams();
   const nav = useNavigate();
+  const qc = useQueryClient();
   const location = useLocation();
   const locationState = (location.state as CertificateLocationState | null) || null;
   const fromStatus = locationState?.fromStatus === "active" || locationState?.fromStatus === "completed" || locationState?.fromStatus === "quiz"
@@ -40,7 +43,10 @@ export function CertificatePage() {
     : "quiz";
   const fromPath = (locationState?.fromPath || `/my-learnings?status=${fromStatus}`).trim();
   const [downloading, setDownloading] = useState(false);
-  const { user } = useAuthStore();
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deletingCertificate, setDeletingCertificate] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const { user, clearAuth } = useAuthStore();
   const { data: me } = useQuery({
     queryKey: ["auth", "me", "certificate"],
     queryFn: getMe,
@@ -122,6 +128,57 @@ export function CertificatePage() {
     toast.success("Verification link copied");
   };
 
+  const openDeleteModal = () => {
+    setDeleteError(null);
+    setDeleteModalOpen(true);
+  };
+
+  const closeDeleteModal = () => {
+    if (deletingCertificate) return;
+    setDeleteError(null);
+    setDeleteModalOpen(false);
+  };
+
+  const handleDeleteCertificate = async () => {
+    if (!certificateId || deletingCertificate) return;
+    setDeletingCertificate(true);
+    setDeleteError(null);
+
+    try {
+      await deleteCertificate(certificateId);
+      qc.removeQueries({ queryKey: ["certificate", certificateId], exact: true });
+      await qc.invalidateQueries({ queryKey: ["dashboard"] });
+      await qc.invalidateQueries({ queryKey: ["dashboard", "profile-summary"] });
+      toast.success("Certificate deleted successfully");
+      setDeleteModalOpen(false);
+      nav("/certified", { replace: true });
+    } catch (error: any) {
+      const err = error as ApiClientError;
+      const status = Number(err?.status || 0);
+
+      if (status === 401) {
+        qc.clear();
+        clearAuth();
+        toast.error("Session expired. Please log in again.");
+        nav("/login", { replace: true });
+        return;
+      }
+
+      if (status === 403) {
+        const message = "You cannot delete this certificate";
+        setDeleteError(message);
+        toast.error(message);
+        return;
+      }
+
+      const message = err?.message || "Failed to delete certificate";
+      setDeleteError(message);
+      toast.error(message);
+    } finally {
+      setDeletingCertificate(false);
+    }
+  };
+
   if (isLoading) {
     return (<div className="ct-loading" style={{ minHeight: 300 }}><div className="ct-spinner" /><span>Loading certificate...</span></div>);
   }
@@ -170,6 +227,15 @@ export function CertificatePage() {
           </button>
           <button className="ct-btn ct-btn-secondary ct-btn-sm" onClick={handleShare} id="cert-share-btn">
             <Share2 size={14} /> Share
+          </button>
+          <button
+            className="ct-btn ct-btn-danger ct-btn-sm"
+            onClick={openDeleteModal}
+            disabled={deletingCertificate}
+            id="delete-certificate-btn"
+          >
+            <Trash2 size={14} />
+            {deletingCertificate ? "Deleting..." : "Delete Certificate"}
           </button>
         </div>
       </div>
@@ -282,6 +348,43 @@ export function CertificatePage() {
           </div>
         </div>
       </article>
+
+      {deleteModalOpen && createPortal(
+        <div className="ct-modal-backdrop" onClick={closeDeleteModal}>
+          <div className="ct-modal-card ct-delete-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="ct-delete-modal-icon">
+              <AlertTriangle size={22} />
+            </div>
+            <h3 className="ct-delete-modal-title">Delete Certificate?</h3>
+            <p className="ct-delete-modal-text">
+              This action permanently removes this certificate and cannot be undone.
+            </p>
+            <p className="ct-delete-modal-subtext">
+              <strong>{cert.certificateNumber || cert.certificateId}</strong>
+            </p>
+            {deleteError && (
+              <div className="ct-banner ct-banner-error" style={{ marginBottom: 12 }}>
+                {deleteError}
+              </div>
+            )}
+            <div className="ct-modal-actions">
+              <button className="ct-btn ct-btn-secondary" onClick={closeDeleteModal} disabled={deletingCertificate}>
+                Cancel
+              </button>
+              <button
+                className="ct-btn ct-btn-danger"
+                id="confirm-delete-certificate-btn"
+                onClick={handleDeleteCertificate}
+                disabled={deletingCertificate}
+              >
+                <Trash2 size={15} />
+                {deletingCertificate ? "Deleting..." : "Delete Certificate"}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }
