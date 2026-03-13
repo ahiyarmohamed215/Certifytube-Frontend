@@ -3,6 +3,9 @@ import { AppShell } from "./AppShell";
 import { SearchPage } from "../features/search/SearchPage";
 import { LoginPage } from "../features/auth/LoginPage";
 import { SignupPage } from "../features/auth/SignupPage";
+import { ForgotPasswordPage } from "../features/auth/ForgotPasswordPage";
+import { ResetPasswordPage } from "../features/auth/ResetPasswordPage";
+import { VerifyEmailPage } from "../features/auth/VerifyEmailPage";
 import { MyLearningsPage } from "../features/dashboard/HomePage";
 import { WatchPage } from "../features/player/WatchPage";
 import { AnalyzePage } from "../features/analyze/AnalyzePage";
@@ -31,6 +34,9 @@ export const router = createBrowserRouter([
   { path: "/", element: wrap(<LandingPage />) },
   { path: "/login", element: <LoginPage /> },
   { path: "/signup", element: <SignupPage /> },
+  { path: "/forgot-password", element: <ForgotPasswordPage /> },
+  { path: "/reset-password", element: <ResetPasswordPage /> },
+  { path: "/verify-email", element: <VerifyEmailPage /> },
   { path: "/verify/:token", element: wrap(<VerifyPage />) },
 
   // Protected

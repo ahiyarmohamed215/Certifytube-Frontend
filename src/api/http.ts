@@ -20,7 +20,11 @@ http.interceptors.request.use((config) => {
   const requestUrl = String(config.url || "");
   const isAuthEntryPoint =
     /\/api\/auth\/login\b/.test(requestUrl) ||
-    /\/api\/auth\/signup\b/.test(requestUrl);
+    /\/api\/auth\/signup\b/.test(requestUrl) ||
+    /\/api\/auth\/forgot-password\b/.test(requestUrl) ||
+    /\/api\/auth\/resend-verification\b/.test(requestUrl) ||
+    /\/api\/auth\/verify-email\b/.test(requestUrl) ||
+    /\/api\/auth\/reset-password\b/.test(requestUrl);
 
   const headers: any = config.headers || {};
 

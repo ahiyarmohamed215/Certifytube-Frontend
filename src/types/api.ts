@@ -1,14 +1,22 @@
 /* ===== API Types - aligned to backend contract ===== */
 
 // ---- Auth ----
-export interface AuthResponse {
+export interface SignupResponse {
+  userId: number;
+  email: string;
+  role: string;
+  emailVerified: boolean;
+  message?: string;
+}
+
+export interface LoginResponse {
   userId: number;
   email: string;
   name?: string;
   role: string;
+  emailVerified: boolean;
   token: string;
   tokenType: string;
-  message?: string;
 }
 
 export interface UserInfo {
@@ -16,6 +24,10 @@ export interface UserInfo {
   email: string;
   name?: string;
   role: string;
+}
+
+export interface AuthMessageResponse {
+  message: string;
 }
 
 // ---- YouTube ----

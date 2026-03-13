@@ -1,17 +1,15 @@
 import { useState } from "react";
-import { createPortal } from "react-dom";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowLeft, CheckCircle2, Clock, Download, ExternalLink, Printer, Share2, Trash2, X, XCircle } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { ArrowLeft, CheckCircle2, Clock, Download, ExternalLink, Share2, X, XCircle } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import toast from "react-hot-toast";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 
-import { deleteCertificate, getCertificate } from "../../api/certificate";
+import { getCertificate } from "../../api/certificate";
 import { getMe } from "../../api/auth";
 import { useAuthStore } from "../../store/useAuthStore";
-import type { ApiClientError } from "../../api/http";
 
 function fmtPct(v: number | undefined | null): string {
   if (v == null || v === 0) return "-";
@@ -35,7 +33,6 @@ type CertificateLocationState = {
 export function CertificatePage() {
   const { certificateId } = useParams();
   const nav = useNavigate();
-  const qc = useQueryClient();
   const location = useLocation();
   const locationState = (location.state as CertificateLocationState | null) || null;
   const fromStatus = locationState?.fromStatus === "active" || locationState?.fromStatus === "completed" || locationState?.fromStatus === "quiz"
@@ -43,10 +40,7 @@ export function CertificatePage() {
     : "quiz";
   const fromPath = (locationState?.fromPath || `/my-learnings?status=${fromStatus}`).trim();
   const [downloading, setDownloading] = useState(false);
-  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
-  const [deletingCertificate, setDeletingCertificate] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-  const { user, clearAuth } = useAuthStore();
+  const { user } = useAuthStore();
   const { data: me } = useQuery({
     queryKey: ["auth", "me", "certificate"],
     queryFn: getMe,
@@ -64,7 +58,7 @@ export function CertificatePage() {
       try {
         await document.fonts.ready;
       } catch {
-        // ignore font readiness failures and continue rendering
+        // ignore and continue to capture
       }
     }
 
@@ -74,7 +68,7 @@ export function CertificatePage() {
       scale: Math.max(2, Math.min(3, window.devicePixelRatio || 2)),
       useCORS: true,
       logging: false,
-      backgroundColor: "#fdfcfb",
+      backgroundColor: null,
       windowWidth: Math.ceil(el.scrollWidth),
       windowHeight: Math.ceil(el.scrollHeight),
       scrollX: 0,
@@ -82,42 +76,31 @@ export function CertificatePage() {
     });
   };
 
-  const buildCertificatePdf = (canvas: HTMLCanvasElement): jsPDF => {
-    const pdf = new jsPDF("l", "pt", "a4");
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-    const imageRatio = canvas.width / canvas.height;
-    const pageRatio = pageWidth / pageHeight;
-
-    let renderWidth = pageWidth;
-    let renderHeight = pageHeight;
-    if (imageRatio > pageRatio) {
-      renderHeight = pageWidth / imageRatio;
-    } else if (imageRatio < pageRatio) {
-      renderWidth = pageHeight * imageRatio;
-    }
-    const x = (pageWidth - renderWidth) / 2;
-    const y = (pageHeight - renderHeight) / 2;
-
-    const imageData = canvas.toDataURL("image/png", 1.0);
-    pdf.addImage(imageData, "PNG", x, y, renderWidth, renderHeight, undefined, "FAST");
-    return pdf;
-  };
-
   const handleDownload = async () => {
-    const el = document.getElementById("printable-certificate");
-    if (!el) { toast.error("Certificate not ready"); return; }
+    const el = document.getElementById("printable-certificate") as HTMLElement | null;
+    if (!el) {
+      toast.error("Certificate not ready");
+      return;
+    }
+
     setDownloading(true);
     try {
       const canvas = await captureCertificateCanvas(el);
-      const pdf = buildCertificatePdf(canvas);
+      const pdf = new jsPDF({
+        orientation: canvas.width >= canvas.height ? "landscape" : "portrait",
+        unit: "px",
+        format: [canvas.width, canvas.height],
+        compress: true,
+      });
+      const imgData = canvas.toDataURL("image/png");
+      pdf.addImage(imgData, "PNG", 0, 0, canvas.width, canvas.height);
       pdf.save(`Certificate-${learnerName.replace(/\s+/g, "_")}.pdf`);
       toast.success("Certificate downloaded");
-    } catch { toast.error("Failed to generate PDF"); }
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to generate certificate PDF");
+    }
     finally { setDownloading(false); }
   };
-
-  const handlePrint = () => window.print();
 
   const handleShare = () => {
     const link = cert?.verificationToken
@@ -126,57 +109,6 @@ export function CertificatePage() {
     if (!link) return;
     navigator.clipboard.writeText(link);
     toast.success("Verification link copied");
-  };
-
-  const openDeleteModal = () => {
-    setDeleteError(null);
-    setDeleteModalOpen(true);
-  };
-
-  const closeDeleteModal = () => {
-    if (deletingCertificate) return;
-    setDeleteError(null);
-    setDeleteModalOpen(false);
-  };
-
-  const handleDeleteCertificate = async () => {
-    if (!certificateId || deletingCertificate) return;
-    setDeletingCertificate(true);
-    setDeleteError(null);
-
-    try {
-      await deleteCertificate(certificateId);
-      qc.removeQueries({ queryKey: ["certificate", certificateId], exact: true });
-      await qc.invalidateQueries({ queryKey: ["dashboard"] });
-      await qc.invalidateQueries({ queryKey: ["dashboard", "profile-summary"] });
-      toast.success("Certificate deleted successfully");
-      setDeleteModalOpen(false);
-      nav("/certified", { replace: true });
-    } catch (error: any) {
-      const err = error as ApiClientError;
-      const status = Number(err?.status || 0);
-
-      if (status === 401) {
-        qc.clear();
-        clearAuth();
-        toast.error("Session expired. Please log in again.");
-        nav("/login", { replace: true });
-        return;
-      }
-
-      if (status === 403) {
-        const message = "You cannot delete this certificate";
-        setDeleteError(message);
-        toast.error(message);
-        return;
-      }
-
-      const message = err?.message || "Failed to delete certificate";
-      setDeleteError(message);
-      toast.error(message);
-    } finally {
-      setDeletingCertificate(false);
-    }
   };
 
   if (isLoading) {
@@ -219,23 +151,26 @@ export function CertificatePage() {
       </div>
 
       {/* Toolbar */}
-      <div className="ct-cert-toolbar ct-no-print" style={{ justifyContent: "flex-end" }}>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button className="ct-btn ct-btn-secondary ct-btn-sm" onClick={handlePrint}><Printer size={14} /> Print</button>
-          <button className="ct-btn ct-btn-primary ct-btn-sm" onClick={handleDownload} disabled={downloading} id="cert-download-btn">
-            <Download size={14} /> {downloading ? "Generating..." : "Download PDF"}
-          </button>
-          <button className="ct-btn ct-btn-secondary ct-btn-sm" onClick={handleShare} id="cert-share-btn">
-            <Share2 size={14} /> Share
+      <div className="ct-cert-toolbar ct-no-print">
+        <div className="ct-cert-toolbar-left">
+          <button
+            className="ct-btn ct-btn-primary ct-btn-sm ct-cert-icon-btn"
+            onClick={handleDownload}
+            disabled={downloading}
+            id="cert-download-btn"
+            title={downloading ? "Downloading..." : "Download PDF"}
+            aria-label={downloading ? "Downloading certificate" : "Download certificate PDF"}
+          >
+            <Download size={15} />
           </button>
           <button
-            className="ct-btn ct-btn-danger ct-btn-sm"
-            onClick={openDeleteModal}
-            disabled={deletingCertificate}
-            id="delete-certificate-btn"
+            className="ct-btn ct-btn-secondary ct-btn-sm ct-cert-icon-btn"
+            onClick={handleShare}
+            id="cert-share-btn"
+            title="Copy verification link"
+            aria-label="Copy verification link"
           >
-            <Trash2 size={14} />
-            {deletingCertificate ? "Deleting..." : "Delete Certificate"}
+            <Share2 size={15} />
           </button>
         </div>
       </div>
@@ -349,42 +284,6 @@ export function CertificatePage() {
         </div>
       </article>
 
-      {deleteModalOpen && createPortal(
-        <div className="ct-modal-backdrop" onClick={closeDeleteModal}>
-          <div className="ct-modal-card ct-delete-modal" onClick={(event) => event.stopPropagation()}>
-            <div className="ct-delete-modal-icon">
-              <AlertTriangle size={22} />
-            </div>
-            <h3 className="ct-delete-modal-title">Delete Certificate?</h3>
-            <p className="ct-delete-modal-text">
-              This action permanently removes this certificate and cannot be undone.
-            </p>
-            <p className="ct-delete-modal-subtext">
-              <strong>{cert.certificateNumber || cert.certificateId}</strong>
-            </p>
-            {deleteError && (
-              <div className="ct-banner ct-banner-error" style={{ marginBottom: 12 }}>
-                {deleteError}
-              </div>
-            )}
-            <div className="ct-modal-actions">
-              <button className="ct-btn ct-btn-secondary" onClick={closeDeleteModal} disabled={deletingCertificate}>
-                Cancel
-              </button>
-              <button
-                className="ct-btn ct-btn-danger"
-                id="confirm-delete-certificate-btn"
-                onClick={handleDeleteCertificate}
-                disabled={deletingCertificate}
-              >
-                <Trash2 size={15} />
-                {deletingCertificate ? "Deleting..." : "Delete Certificate"}
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body,
-      )}
     </div>
   );
 }

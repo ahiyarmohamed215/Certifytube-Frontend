@@ -1,5 +1,10 @@
 import { http } from "./http";
-import type { AuthResponse, UserInfo } from "../types/api";
+import type {
+    LoginResponse,
+    SignupResponse,
+    UserInfo,
+    AuthMessageResponse,
+} from "../types/api";
 
 function readName(payload: any): string | undefined {
     const direct =
@@ -19,15 +24,25 @@ function readName(payload: any): string | undefined {
     return combined || undefined;
 }
 
-function normalizeAuthResponse(payload: any): AuthResponse {
+function normalizeSignupResponse(payload: any): SignupResponse {
+    return {
+        userId: Number(payload?.userId ?? payload?.id ?? 0),
+        email: String(payload?.email ?? ""),
+        role: String(payload?.role ?? "USER"),
+        emailVerified: Boolean(payload?.emailVerified),
+        message: typeof payload?.message === "string" ? payload.message : undefined,
+    };
+}
+
+function normalizeLoginResponse(payload: any): LoginResponse {
     return {
         userId: Number(payload?.userId ?? payload?.id ?? 0),
         email: String(payload?.email ?? ""),
         name: readName(payload),
         role: String(payload?.role ?? "USER"),
+        emailVerified: Boolean(payload?.emailVerified),
         token: String(payload?.token ?? ""),
         tokenType: String(payload?.tokenType ?? "Bearer"),
-        message: typeof payload?.message === "string" ? payload.message : undefined,
     };
 }
 
@@ -40,14 +55,20 @@ function normalizeUserInfo(payload: any): UserInfo {
     };
 }
 
-export async function signup(email: string, password: string, name: string): Promise<AuthResponse> {
-    const res = await http.post("/api/auth/signup", { email, password, name });
-    return normalizeAuthResponse(res.data);
+function normalizeMessageResponse(payload: any): AuthMessageResponse {
+    return {
+        message: typeof payload?.message === "string" ? payload.message : "Success",
+    };
 }
 
-export async function login(email: string, password: string): Promise<AuthResponse> {
+export async function signup(email: string, password: string, name: string): Promise<SignupResponse> {
+    const res = await http.post("/api/auth/signup", { email, password, name });
+    return normalizeSignupResponse(res.data);
+}
+
+export async function login(email: string, password: string): Promise<LoginResponse> {
     const res = await http.post("/api/auth/login", { email, password });
-    return normalizeAuthResponse(res.data);
+    return normalizeLoginResponse(res.data);
 }
 
 export async function getMe(): Promise<UserInfo> {
@@ -61,4 +82,31 @@ export async function logout(): Promise<void> {
 
 export async function deleteMyAccount(): Promise<void> {
     await http.delete("/api/auth/me");
+}
+
+export async function forgotPassword(email: string): Promise<AuthMessageResponse> {
+    const res = await http.post("/api/auth/forgot-password", { email });
+    return normalizeMessageResponse(res.data);
+}
+
+export async function resendVerification(email: string): Promise<AuthMessageResponse> {
+    const res = await http.post("/api/auth/resend-verification", { email });
+    return normalizeMessageResponse(res.data);
+}
+
+export async function verifyEmail(token: string): Promise<AuthMessageResponse> {
+    const res = await http.get("/api/auth/verify-email", {
+        params: { token },
+    });
+    return normalizeMessageResponse(res.data);
+}
+
+export async function resetPassword(token: string, newPassword: string): Promise<AuthMessageResponse> {
+    const res = await http.post("/api/auth/reset-password", { token, newPassword });
+    return normalizeMessageResponse(res.data);
+}
+
+export async function changePassword(currentPassword: string, newPassword: string): Promise<AuthMessageResponse> {
+    const res = await http.post("/api/auth/change-password", { currentPassword, newPassword });
+    return normalizeMessageResponse(res.data);
 }

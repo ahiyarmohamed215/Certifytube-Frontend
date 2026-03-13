@@ -1,11 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ProfilePage } from "./ProfilePage";
-import { deleteMyAccount, getMe } from "../../api/auth";
+import { changePassword, deleteMyAccount, getMe } from "../../api/auth";
 import { getDashboard } from "../../api/dashboard";
 import { useAuthStore } from "../../store/useAuthStore";
 
@@ -19,6 +19,7 @@ vi.mock("react-hot-toast", () => ({
 vi.mock("../../api/auth", () => ({
   getMe: vi.fn(),
   deleteMyAccount: vi.fn(),
+  changePassword: vi.fn(),
 }));
 
 vi.mock("../../api/dashboard", () => ({
@@ -27,6 +28,7 @@ vi.mock("../../api/dashboard", () => ({
 
 const mockedGetMe = vi.mocked(getMe);
 const mockedDeleteMyAccount = vi.mocked(deleteMyAccount);
+const mockedChangePassword = vi.mocked(changePassword);
 const mockedGetDashboard = vi.mocked(getDashboard);
 
 function renderProfilePage() {
@@ -127,5 +129,52 @@ describe("ProfilePage delete account", () => {
     await user.click(within(modal as HTMLElement).getByRole("button", { name: /^Delete Account$/i }));
 
     expect(await screen.findByText("Backend says cannot delete now")).toBeInTheDocument();
+  });
+
+  it("changes password when form is valid", async () => {
+    mockedChangePassword.mockResolvedValue({ message: "Password updated successfully" });
+
+    renderProfilePage();
+    await screen.findByText("Profile");
+
+    fireEvent.change(screen.getByLabelText("Current Password"), { target: { value: "old-pass1" } });
+    fireEvent.change(screen.getByLabelText("New Password"), { target: { value: "new-pass1" } });
+    fireEvent.change(screen.getByLabelText("Confirm New Password"), { target: { value: "new-pass1" } });
+    fireEvent.click(screen.getByRole("button", { name: /update password/i }));
+
+    await waitFor(() => {
+      expect(mockedChangePassword).toHaveBeenCalledWith("old-pass1", "new-pass1");
+    });
+    expect(await screen.findByText("Password updated successfully")).toBeInTheDocument();
+  });
+
+  it("shows validation error when confirm password does not match", async () => {
+    renderProfilePage();
+    await screen.findByText("Profile");
+
+    fireEvent.change(screen.getByLabelText("Current Password"), { target: { value: "old-pass1" } });
+    fireEvent.change(screen.getByLabelText("New Password"), { target: { value: "new-pass1" } });
+    fireEvent.change(screen.getByLabelText("Confirm New Password"), { target: { value: "diff-pass1" } });
+    fireEvent.click(screen.getByRole("button", { name: /update password/i }));
+
+    expect(mockedChangePassword).not.toHaveBeenCalled();
+    expect(await screen.findByText("New password and confirm password must match")).toBeInTheDocument();
+  });
+
+  it("redirects to login when change password returns 401", async () => {
+    mockedChangePassword.mockRejectedValue(Object.assign(new Error("Unauthorized"), { status: 401 }));
+    localStorage.setItem("ct_token", "token-1");
+    localStorage.setItem("ct_user", JSON.stringify({ userId: 7, email: "learner@example.com", role: "USER" }));
+
+    renderProfilePage();
+    await screen.findByText("Profile");
+
+    fireEvent.change(screen.getByLabelText("Current Password"), { target: { value: "old-pass1" } });
+    fireEvent.change(screen.getByLabelText("New Password"), { target: { value: "new-pass1" } });
+    fireEvent.change(screen.getByLabelText("Confirm New Password"), { target: { value: "new-pass1" } });
+    fireEvent.click(screen.getByRole("button", { name: /update password/i }));
+
+    expect(await screen.findByText("Login Page")).toBeInTheDocument();
+    expect(localStorage.getItem("ct_token")).toBeNull();
   });
 });

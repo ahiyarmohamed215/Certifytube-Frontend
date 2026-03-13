@@ -1,11 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CertificatePage } from "./CertificatePage";
-import { deleteCertificate, getCertificate } from "../../api/certificate";
+import { getCertificate } from "../../api/certificate";
 import { getMe } from "../../api/auth";
 import { useAuthStore } from "../../store/useAuthStore";
 
@@ -18,7 +17,6 @@ vi.mock("react-hot-toast", () => ({
 
 vi.mock("../../api/certificate", () => ({
   getCertificate: vi.fn(),
-  deleteCertificate: vi.fn(),
 }));
 
 vi.mock("../../api/auth", () => ({
@@ -26,7 +24,6 @@ vi.mock("../../api/auth", () => ({
 }));
 
 const mockedGetCertificate = vi.mocked(getCertificate);
-const mockedDeleteCertificate = vi.mocked(deleteCertificate);
 const mockedGetMe = vi.mocked(getMe);
 
 function renderCertificatePage() {
@@ -42,15 +39,13 @@ function renderCertificatePage() {
       <MemoryRouter initialEntries={["/certificate/cert-1"]}>
         <Routes>
           <Route path="/certificate/:certificateId" element={<CertificatePage />} />
-          <Route path="/certified" element={<div>Certified List</div>} />
-          <Route path="/login" element={<div>Login Page</div>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );
 }
 
-describe("CertificatePage delete certificate", () => {
+describe("CertificatePage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useAuthStore.setState({
@@ -86,54 +81,19 @@ describe("CertificatePage delete certificate", () => {
     });
   });
 
-  it("opens and closes delete certificate modal", async () => {
-    const user = userEvent.setup();
+  it("renders certificate summary and actions", async () => {
     renderCertificatePage();
 
-    await screen.findByText("Certificate of Achievement");
-    await user.click(screen.getByRole("button", { name: /delete certificate/i }));
-    expect(screen.getByText("Delete Certificate?")).toBeInTheDocument();
-
-    const modal = screen.getByText("Delete Certificate?").closest(".ct-modal-card");
-    expect(modal).toBeTruthy();
-    await user.click(within(modal as HTMLElement).getByRole("button", { name: "Cancel" }));
-    await waitFor(() => {
-      expect(screen.queryByText("Delete Certificate?")).not.toBeInTheDocument();
-    });
+    expect(await screen.findByText("Certificate of Achievement")).toBeInTheDocument();
+    expect(screen.getByText("Certificate Verified")).toBeInTheDocument();
+    expect(screen.getByLabelText("Download certificate PDF")).toBeInTheDocument();
+    expect(screen.getByLabelText("Copy verification link")).toBeInTheDocument();
   });
 
-  it("deletes certificate and redirects to certified list", async () => {
-    const user = userEvent.setup();
-    mockedDeleteCertificate.mockResolvedValue(undefined);
+  it("shows active status badge", async () => {
     renderCertificatePage();
 
-    await screen.findByText("Certificate of Achievement");
-    await user.click(screen.getByRole("button", { name: /delete certificate/i }));
-
-    const modal = screen.getByText("Delete Certificate?").closest(".ct-modal-card");
-    expect(modal).toBeTruthy();
-    await user.click(within(modal as HTMLElement).getByRole("button", { name: /^Delete Certificate$/i }));
-
-    await waitFor(() => {
-      expect(mockedDeleteCertificate).toHaveBeenCalledWith("cert-1");
-    });
-    expect(await screen.findByText("Certified List")).toBeInTheDocument();
-  });
-
-  it("shows forbidden message when certificate delete is not allowed", async () => {
-    const user = userEvent.setup();
-    const forbidden = Object.assign(new Error("Forbidden"), { status: 403 });
-    mockedDeleteCertificate.mockRejectedValue(forbidden);
-    renderCertificatePage();
-
-    await screen.findByText("Certificate of Achievement");
-    await user.click(screen.getByRole("button", { name: /delete certificate/i }));
-
-    const modal = screen.getByText("Delete Certificate?").closest(".ct-modal-card");
-    expect(modal).toBeTruthy();
-    await user.click(within(modal as HTMLElement).getByRole("button", { name: /^Delete Certificate$/i }));
-
-    expect(await screen.findByText("You cannot delete this certificate")).toBeInTheDocument();
+    expect(await screen.findByText("Certificate of Achievement")).toBeInTheDocument();
+    expect(screen.getByText("ACTIVE")).toBeInTheDocument();
   });
 });
-

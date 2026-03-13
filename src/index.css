@@ -2053,7 +2053,30 @@ div[class*="go"] {
   align-items: center;
   gap: 10px;
   margin-bottom: 12px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+}
+
+.ct-cert-toolbar-left,
+.ct-cert-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+.ct-cert-toolbar-right {
+  margin-left: auto;
+}
+
+.ct-cert-icon-btn {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  justify-content: center;
+}
+
+.ct-certified-view-btn {
+  min-width: 170px;
 }
 
 .ct-certificate {
@@ -3805,7 +3828,14 @@ div[class*="go"] {
 .ct-certified-action {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
   flex-shrink: 0;
+}
+
+.ct-certified-action .ct-btn {
+  white-space: nowrap;
 }
 
 /* === Certificate Mobile Hardening === */
@@ -3818,14 +3848,28 @@ div[class*="go"] {
 
 @media (max-width: 768px) {
   .ct-cert-toolbar {
-    flex-direction: column;
-    align-items: stretch;
+    justify-content: space-between;
+    align-items: center;
     gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .ct-cert-toolbar-left,
+  .ct-cert-toolbar-right {
+    width: auto;
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: center;
   }
 
   .ct-cert-toolbar .ct-btn {
-    width: 100%;
+    width: auto;
     justify-content: center;
+  }
+
+  .ct-cert-toolbar .ct-btn.ct-cert-icon-btn {
+    width: 38px;
+    height: 38px;
   }
 
   .ct-pc {
@@ -3940,11 +3984,17 @@ div[class*="go"] {
 
   .ct-certified-action {
     width: 100%;
+    flex-wrap: nowrap;
   }
 
   .ct-certified-action .ct-btn {
-    width: 100%;
+    width: 50%;
+    min-width: 0;
     justify-content: center;
+  }
+
+  .ct-certified-view-btn {
+    min-width: 0;
   }
 }
 
