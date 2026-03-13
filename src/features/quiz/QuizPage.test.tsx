@@ -5,7 +5,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { QuizPage } from "./QuizPage";
-import { getQuiz, submitQuiz } from "../../api/quiz";
+import { generateQuiz, getQuiz, getQuizEligibility, submitQuiz } from "../../api/quiz";
 
 vi.mock("react-hot-toast", () => ({
   default: {
@@ -35,6 +35,8 @@ vi.mock("../../api/quiz", () => ({
 }));
 
 const mockedGetQuiz = vi.mocked(getQuiz);
+const mockedGetQuizEligibility = vi.mocked(getQuizEligibility);
+const mockedGenerateQuiz = vi.mocked(generateQuiz);
 const mockedSubmitQuiz = vi.mocked(submitQuiz);
 
 function renderQuizPage(path = "/quiz/quiz-1") {
@@ -118,5 +120,73 @@ describe("QuizPage", () => {
         },
       });
     });
+  });
+
+  it("generates quiz with one click when no quiz exists for session route", async () => {
+    mockedGetQuiz
+      .mockRejectedValueOnce(new Error("Quiz not found"))
+      .mockResolvedValueOnce({
+        quizId: "quiz-99",
+        sessionId: "session-1",
+        videoId: "video-1",
+        videoTitle: "Algebra Basics",
+        difficulty: "medium",
+        totalQuestions: 1,
+        questions: [
+          {
+            questionId: "q1",
+            questionType: "mcq",
+            questionText: "2 + 2 = ?",
+            options: ["3", "4"],
+          },
+        ],
+      });
+
+    mockedGetQuizEligibility.mockResolvedValue({
+      sessionId: "session-1",
+      eligible: true,
+      reason: "Eligible",
+      requiredEngagementScore: 0.85,
+      latestEngagementScore: 0.9,
+      engagementPassed: true,
+      maxFailedAttempts: 2,
+      failedAttemptsUsed: 0,
+      remainingAttempts: 2,
+      stemEligible: true,
+    });
+
+    mockedGenerateQuiz.mockResolvedValue({
+      quizId: "quiz-99",
+      sessionId: "session-1",
+      videoId: "video-1",
+      videoTitle: "Algebra Basics",
+      difficulty: "medium",
+      totalQuestions: 1,
+      questions: [
+        {
+          questionId: "q1",
+          questionType: "mcq",
+          questionText: "2 + 2 = ?",
+          options: ["3", "4"],
+        },
+      ],
+    });
+
+    const user = userEvent.setup();
+    renderQuizPage("/quiz/session-1");
+
+    const generateButton = await screen.findByRole("button", { name: "Generate Quiz" });
+    await user.click(generateButton);
+
+    await waitFor(() => {
+      expect(mockedGenerateQuiz).toHaveBeenCalledWith({
+        sessionId: "session-1",
+        difficulty: "medium",
+        numQuestions: 10,
+        includeCoding: false,
+      });
+    });
+
+    expect(screen.queryByText("Start Quiz Attempt")).not.toBeInTheDocument();
   });
 });

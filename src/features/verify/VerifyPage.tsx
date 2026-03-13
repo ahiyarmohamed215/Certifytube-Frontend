@@ -60,14 +60,16 @@ export function VerifyPage() {
     <div className="ct-slide-up" style={{ maxWidth: 680, margin: "40px auto" }}>
       {/* Status banner */}
       <div className={`ct-vbanner ${isValid ? "ct-vbanner-ok" : "ct-vbanner-err"}`}>
-        {isValid ? <CheckCircle size={20} /> : <XCircle size={20} />}
-        <div style={{ flex: 1 }}>
-          <strong style={{ fontSize: 15 }}>{isValid ? "Certificate Verified" : "Certificate Revoked"}</strong>
-          <p style={{ margin: "2px 0 0", fontSize: 12.5, opacity: 0.8 }}>
+        {isValid ? <CheckCircle size={18} /> : <XCircle size={18} />}
+        <div className="ct-vbanner-copy">
+          <strong className="ct-vbanner-title">{isValid ? "Certificate Verified" : "Certificate Revoked"}</strong>
+          <p className="ct-vbanner-desc">
             {isValid ? "This certificate is authentic and issued by CertifyTube." : "This certificate has been revoked and is no longer valid."}
           </p>
         </div>
-        <span className={`ct-badge ${isValid ? "ct-badge-certified" : "ct-badge-revoked"}`}>{cert.status || "ACTIVE"}</span>
+        <span className={`ct-badge ct-vbanner-status ${isValid ? "ct-badge-certified" : "ct-badge-revoked"}`}>
+          {cert.status || "ACTIVE"}
+        </span>
       </div>
 
       {/* Main card */}

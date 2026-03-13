@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Download, ExternalLink, Share2, Clock, ShieldCheck, ShieldX, Printer } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Clock, Download, ExternalLink, Printer, Share2, XCircle } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import toast from "react-hot-toast";
 import html2canvas from "html2canvas";
@@ -112,10 +112,21 @@ export function CertificatePage() {
       </div>
 
       {/* Status Banner */}
-      <div className={`ct-vbanner ct-no-print ${isValid ? "ct-vbanner-ok" : "ct-vbanner-err"}`}>
-        {isValid ? <ShieldCheck size={18} /> : <ShieldX size={18} />}
-        <span>{isValid ? "This certificate is active and verified." : "This certificate has been revoked."}</span>
-        <span className={`ct-badge ${isValid ? "ct-badge-certified" : "ct-badge-revoked"}`}>{cert.status || "ACTIVE"}</span>
+      <div className={`ct-vbanner ct-vbanner-cert ct-no-print ${isValid ? "ct-vbanner-ok" : "ct-vbanner-err"}`}>
+        <span className="ct-vbanner-icon">
+          {isValid ? <CheckCircle2 size={19} /> : <XCircle size={19} />}
+        </span>
+        <div className="ct-vbanner-copy">
+          <strong className="ct-vbanner-title">
+            {isValid ? "Certificate Verified" : "Certificate Revoked"}
+          </strong>
+          <p className="ct-vbanner-desc">
+            {isValid ? "This certificate is active and verified." : "This certificate has been revoked."}
+          </p>
+        </div>
+        <span className={`ct-badge ct-vbanner-status ${isValid ? "ct-badge-certified" : "ct-badge-revoked"}`}>
+          {cert.status || "ACTIVE"}
+        </span>
       </div>
 
       {/* ===== CERTIFICATE ===== */}

@@ -15,8 +15,19 @@ export async function getQuizEligibility(sessionId: string): Promise<QuizEligibi
 }
 
 export async function generateQuiz(req: QuizGenerateRequest): Promise<QuizResponse> {
-  const res = await http.post<QuizResponse>("/api/quiz/generate", req);
-  return res.data;
+  try {
+    const res = await http.post<QuizResponse>("/api/quiz/generate", req, {
+      // First quiz generation can be slow on cold backend AI paths.
+      timeout: 120000,
+    });
+    return res.data;
+  } catch (error: any) {
+    const message = String(error?.message || "");
+    if (/timeout|econnaborted/i.test(message)) {
+      throw new Error("Quiz generation timed out. Please try once again.");
+    }
+    throw error;
+  }
 }
 
 export async function getQuiz(quizId: string): Promise<QuizResponse> {

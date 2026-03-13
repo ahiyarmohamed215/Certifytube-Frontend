@@ -447,17 +447,7 @@ export function QuizPage() {
         return;
       }
 
-      showLockPopup(
-        {
-          tone: "warning",
-          title: "Start Quiz Attempt",
-          message: "If you click OK, a quiz will be generated and 1 attempt will be used immediately, even if you close the quiz later.",
-          buttonText: "OK, Generate Quiz",
-          allowClose: true,
-          closeText: "Close",
-        },
-        () => { void generateQuizAfterConfirmation(sid); },
-      );
+      await generateQuizAfterConfirmation(sid);
     } catch (e: any) {
       toast.error(e?.message || "Failed to check quiz eligibility");
     }
@@ -838,7 +828,7 @@ export function QuizPage() {
   const attemptsExhausted = !eligibilityLoading && Boolean(eligibility?.eligible) && remainingQuizAttempts <= 0;
   const generateDisabled = generating
     || eligibilityLoading
-    || (eligibility ? (!eligibility.eligible || attemptsExhausted) : true);
+    || Boolean(eligibility && (!eligibility.eligible || attemptsExhausted));
 
   if (!quizId) return <div className="ct-empty">Missing quiz context</div>;
 

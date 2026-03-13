@@ -2699,8 +2699,8 @@ div[class*="go"] {
 .ct-vbanner {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 16px;
+  gap: 12px;
+  padding: 12px 16px;
   border-radius: var(--ct-radius-md);
   margin-bottom: 14px;
   font-size: 13px;
@@ -2722,6 +2722,131 @@ div[class*="go"] {
 .ct-vbanner .ct-badge {
   margin-left: auto;
   flex-shrink: 0;
+}
+
+.ct-vbanner-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.ct-vbanner-title {
+  display: block;
+  font-size: 14px;
+  line-height: 1.25;
+  margin: 0;
+}
+
+.ct-vbanner-desc {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  opacity: 0.9;
+}
+
+.ct-vbanner-status {
+  white-space: nowrap;
+}
+
+.ct-vbanner-cert {
+  gap: 12px;
+  padding: 13px 18px;
+  border-radius: 14px;
+}
+
+.ct-vbanner-cert .ct-vbanner-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.ct-vbanner-cert .ct-vbanner-title {
+  font-size: 16px;
+  line-height: 1.3;
+}
+
+.ct-vbanner-cert .ct-vbanner-desc {
+  margin-top: 4px;
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+.ct-vbanner-cert .ct-vbanner-status {
+  margin-left: auto;
+  min-width: 66px;
+  justify-content: center;
+  text-align: center;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ct-vbanner-cert.ct-vbanner-ok {
+  background: #e3edeb;
+  border: 1px solid #a7d1c3;
+}
+
+.ct-vbanner-cert.ct-vbanner-ok .ct-vbanner-icon {
+  color: #047857;
+}
+
+.ct-vbanner-cert.ct-vbanner-ok .ct-vbanner-title {
+  color: #047857;
+}
+
+.ct-vbanner-cert.ct-vbanner-ok .ct-vbanner-desc {
+  color: #0f766e;
+  opacity: 1;
+}
+
+.ct-vbanner-cert.ct-vbanner-ok .ct-vbanner-status {
+  background: #cfe4dc;
+  color: #059669;
+  border: 1px solid #b8dbcf;
+}
+
+.ct-vbanner-cert.ct-vbanner-err {
+  background: #fde8e8;
+  border: 1px solid #f6c7c7;
+}
+
+.ct-vbanner-cert.ct-vbanner-err .ct-vbanner-icon {
+  color: #b42318;
+}
+
+.ct-vbanner-cert.ct-vbanner-err .ct-vbanner-title {
+  color: #b42318;
+}
+
+.ct-vbanner-cert.ct-vbanner-err .ct-vbanner-desc {
+  color: #b42318;
+  opacity: 1;
+}
+
+.ct-vbanner-cert.ct-vbanner-err .ct-vbanner-status {
+  background: #f9d7d7;
+  color: #b42318;
+  border: 1px solid #efb3b3;
+}
+
+.ct-vbanner-corner-left {
+  position: relative;
+  min-height: 76px;
+  padding-top: 20px;
+}
+
+.ct-vbanner-corner-left .ct-vbanner-copy {
+  text-align: center;
+}
+
+.ct-vbanner-corner-left .ct-vbanner-status {
+  position: absolute;
+  top: 8px;
+  left: 12px;
+  margin-left: 0;
+  min-width: 68px;
+  justify-content: center;
+  text-align: center;
 }
 
 /* === Printable Certificate === */
