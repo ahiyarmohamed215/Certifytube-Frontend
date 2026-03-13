@@ -709,7 +709,7 @@ export function ResultPage() {
         )}
 
         {!result.passed && remainingQuizAttempts <= 0 && (
-          <button className="ct-btn ct-btn-secondary ct-result-watchagain-btn" onClick={handleWatchAgain} id="watch-again-btn">
+          <button className="ct-btn ct-btn-primary ct-result-watchagain-btn" onClick={handleWatchAgain} id="watch-again-btn">
             <RotateCcw size={16} /> Watch Again
           </button>
         )}
