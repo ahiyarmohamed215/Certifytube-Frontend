@@ -588,7 +588,6 @@ export function ResultPage() {
           <>
             <XCircle size={62} className="ct-result-hero-icon" />
             <h1 className="ct-result-hero-title failed">
-              <XCircle size={24} className="ct-result-hero-title-icon" />
               Quiz Not Passed
             </h1>
           </>
