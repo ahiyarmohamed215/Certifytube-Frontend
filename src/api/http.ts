@@ -55,7 +55,10 @@ http.interceptors.request.use((config) => {
 http.interceptors.response.use(
   (res) => res,
   async (err) => {
-    if (err.response?.status === 401) {
+    const requestUrl = String(err.config?.url || "");
+    const isAdminApiRequest = /\/api\/admin\//.test(requestUrl);
+
+    if (err.response?.status === 401 || (err.response?.status === 403 && isAdminApiRequest)) {
       localStorage.removeItem("ct_token");
       localStorage.removeItem("ct_user");
       // Redirect only if not already on login/signup
@@ -84,7 +87,6 @@ http.interceptors.response.use(
 
     const status = err.response?.status;
     const method = String(err.config?.method || "").toUpperCase();
-    const requestUrl = String(err.config?.url || "");
 
     // Extract backend error message
     const msg =

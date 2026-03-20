@@ -467,8 +467,7 @@ export function ResultPage() {
 
     nav(`/certificate/${latest.certificateId}`, {
       state: {
-        fromStatus,
-        fromPath,
+        fromPath: "/certified",
       },
     });
   };

@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -26,7 +27,9 @@ vi.mock("../../api/auth", () => ({
 const mockedGetCertificate = vi.mocked(getCertificate);
 const mockedGetMe = vi.mocked(getMe);
 
-function renderCertificatePage() {
+function renderCertificatePage(
+  initialEntries: Array<string | { pathname: string; state?: unknown }> = ["/certificate/cert-1"],
+) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -36,9 +39,10 @@ function renderCertificatePage() {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={["/certificate/cert-1"]}>
+      <MemoryRouter initialEntries={initialEntries}>
         <Routes>
           <Route path="/certificate/:certificateId" element={<CertificatePage />} />
+          <Route path="/certified" element={<div>Certified Page</div>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -95,5 +99,20 @@ describe("CertificatePage", () => {
 
     expect(await screen.findByText("Certificate of Achievement")).toBeInTheDocument();
     expect(screen.getByText("ACTIVE")).toBeInTheDocument();
+  });
+
+  it("closes to certified page when certificate was opened from quiz flow", async () => {
+    const user = userEvent.setup();
+    renderCertificatePage([
+      {
+        pathname: "/certificate/cert-1",
+        state: { fromStatus: "quiz", fromPath: "/my-learnings?status=quiz" },
+      },
+    ]);
+
+    expect(await screen.findByText("Certificate of Achievement")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /close/i }));
+
+    expect(await screen.findByText("Certified Page")).toBeInTheDocument();
   });
 });

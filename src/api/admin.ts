@@ -5,6 +5,8 @@ import type {
     AdminSession,
     AdminCertificate,
     AdminQuiz,
+    AdminEngagementResult,
+    AdminLearnerProfileResponse,
 } from "../types/api";
 
 export async function getAdminStats(): Promise<AdminStats> {
@@ -17,6 +19,11 @@ export async function getAdminUsers(): Promise<AdminUser[]> {
     return res.data;
 }
 
+export async function getAdminLearners(): Promise<AdminUser[]> {
+    const res = await http.get<AdminUser[]>("/api/admin/learners");
+    return res.data;
+}
+
 export async function updateUserRole(userId: number, role: string): Promise<void> {
     await http.put(`/api/admin/users/${userId}/role`, { role });
 }
@@ -25,8 +32,28 @@ export async function deleteUser(userId: number): Promise<void> {
     await http.delete(`/api/admin/users/${userId}`);
 }
 
+export async function updateAdminUser(
+    userId: number,
+    payload: { name: string; email: string; role: string; active: boolean; emailVerified: boolean },
+): Promise<AdminUser> {
+    const res = await http.put<AdminUser>(`/api/admin/users/${userId}`, payload);
+    return res.data;
+}
+
+export async function setAdminUserActive(userId: number, active: boolean): Promise<AdminUser> {
+    const res = await http.patch<AdminUser>(`/api/admin/users/${userId}/active`, { active });
+    return res.data;
+}
+
 export async function getAdminSessions(): Promise<AdminSession[]> {
     const res = await http.get<AdminSession[]>("/api/admin/sessions");
+    return res.data;
+}
+
+export async function getAdminLearnerProfile(learnerId: number, searchLimit = 30): Promise<AdminLearnerProfileResponse> {
+    const res = await http.get<AdminLearnerProfileResponse>(`/api/admin/learners/${learnerId}/profile`, {
+        params: { searchLimit },
+    });
     return res.data;
 }
 
@@ -54,5 +81,15 @@ export async function deleteQuiz(quizId: string): Promise<void> {
 
 export async function revokeCertificate(certId: string): Promise<{ message: string; certificateId: string; status: string }> {
     const res = await http.post(`/api/admin/certificates/${certId}/revoke`);
+    return res.data;
+}
+
+export async function activateCertificate(certId: string): Promise<{ message: string; certificateId: string; status: string }> {
+    const res = await http.post(`/api/admin/certificates/${certId}/activate`);
+    return res.data;
+}
+
+export async function getAdminEngagementResult(sessionId: string): Promise<AdminEngagementResult> {
+    const res = await http.get<AdminEngagementResult>(`/api/admin/engagement-results/${sessionId}`);
     return res.data;
 }

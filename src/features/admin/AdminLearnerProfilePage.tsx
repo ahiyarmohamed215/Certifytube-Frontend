@@ -1,0 +1,777 @@
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  ArrowLeft,
+  Award,
+  BookOpen,
+  CircleOff,
+  Database,
+  ExternalLink,
+  Film,
+  Mail,
+  Trash2,
+} from "lucide-react";
+import toast from "react-hot-toast";
+import { useNavigate, useParams } from "react-router-dom";
+
+import {
+  activateCertificate,
+  deleteCertificate,
+  getAdminLearnerProfile,
+  revokeCertificate,
+} from "../../api/admin";
+import { getApiMessage } from "../../api/errors";
+import { useAuthStore } from "../../store/useAuthStore";
+import type {
+  AdminLearnerCertificateInsight,
+  AdminLearnerQuizInsight,
+  AdminLearnerSessionInsight,
+  AdminLearnerYouTubeSearchInsight,
+} from "../../types/api";
+import { formatIsoDate } from "./engagementReview";
+import { normalizeEngagementContributors } from "./engagementReview";
+import {
+  formatAdminDateTime,
+  formatAdminPercent,
+  formatAdminSeconds,
+  humanizeAdminKey,
+  normalizeOptions,
+  normalizeRecord,
+  prettyPrintJson,
+  resolveQuizAnswer,
+  stringifyPrimitive,
+} from "./adminLearnerUtils";
+
+type LearnerProfileTab = "sessions" | "quizzes" | "certificates" | "search";
+
+type CertificateActionState = {
+  action: "revoke" | "delete";
+  certificate: AdminLearnerCertificateInsight;
+} | null;
+
+function AdminAccessDenied() {
+  const nav = useNavigate();
+  return (
+    <div className="ct-empty" style={{ minHeight: 300 }}>
+      <div className="ct-empty-icon">Admin</div>
+      <p>Access denied. Admin role required.</p>
+      <button className="ct-btn ct-btn-primary" onClick={() => nav(-1)} style={{ marginTop: 16 }}>
+        Go Back
+      </button>
+    </div>
+  );
+}
+
+function JsonBlock({ title, value, defaultOpen = false }: { title: string; value: unknown; defaultOpen?: boolean }) {
+  return (
+    <details className="ct-admin-debug ct-admin-debug-light" open={defaultOpen}>
+      <summary>{title}</summary>
+      <pre>{prettyPrintJson(value)}</pre>
+    </details>
+  );
+}
+
+function KeyValueGrid({ data }: { data: Record<string, unknown> | null | undefined }) {
+  const entries = Object.entries(data || {});
+  if (entries.length === 0) {
+    return <div className="ct-admin-muted-box">No structured key-value data available.</div>;
+  }
+
+  return (
+    <div className="ct-admin-kv-grid">
+      {entries.map(([key, value]) => (
+        <div key={key} className="ct-admin-kv-card">
+          <span>{humanizeAdminKey(key)}</span>
+          <strong>{stringifyPrimitive(value)}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SectionHeader({ icon, title, subtitle }: { icon: ReactNode; title: string; subtitle: string }) {
+  return (
+    <div className="ct-admin-panel-head">
+      <div>
+        <h2 className="ct-admin-panel-title">
+          {icon}
+          {title}
+        </h2>
+        <p className="ct-admin-panel-subtitle">{subtitle}</p>
+      </div>
+    </div>
+  );
+}
+
+function EngagementSignalSection({
+  title,
+  tone,
+  raw,
+  model,
+}: {
+  title: string;
+  tone: "positive" | "negative";
+  raw: unknown;
+  model: string;
+}) {
+  const items = normalizeEngagementContributors(raw, model, tone);
+
+  if (items.length === 0) {
+    return <JsonBlock title={title} value={raw ?? []} />;
+  }
+
+  return (
+    <div className="ct-admin-subsection">
+      <h4 className="ct-admin-subsection-title">{title}</h4>
+      <div className="ct-admin-signal-grid">
+        {items.map((item) => (
+          <article key={item.id} className={`ct-admin-signal-card ${tone === "positive" ? "is-positive" : "is-negative"}`}>
+            <div className="ct-admin-signal-head">
+              <div>
+                <h3 className="ct-admin-signal-title">{item.featureLabel}</h3>
+                <p className="ct-admin-signal-key">{item.rawFeatureKey}</p>
+              </div>
+              <span className={`ct-admin-signal-impact ${tone === "positive" ? "is-positive" : "is-negative"}`}>
+                {item.impactDisplay}
+              </span>
+            </div>
+            <p className="ct-admin-signal-reason">{item.reason}</p>
+            <div className="ct-admin-signal-meta">
+              <div className="ct-admin-signal-meta-item">
+                <span>{item.impactLabel}</span>
+                <strong>{item.impactDisplay}</strong>
+              </div>
+              <div className="ct-admin-signal-meta-item">
+                <span>Feature Value</span>
+                <strong>{item.featureValueDisplay}</strong>
+              </div>
+              <div className="ct-admin-signal-meta-item">
+                <span>Behavior</span>
+                <strong>{item.behaviorLabel}</strong>
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SessionCard({ session }: { session: AdminLearnerSessionInsight }) {
+  const featuresRecord = normalizeRecord(session.features);
+  const engagement = session.engagement;
+
+  return (
+    <article className="ct-admin-resource-card">
+      <div className="ct-admin-resource-head">
+        <div>
+          <h3 className="ct-admin-resource-title">{session.videoTitle}</h3>
+          <p className="ct-admin-resource-subtitle">
+            Session {session.sessionId} • Video {session.videoId}
+          </p>
+        </div>
+        <div className="ct-admin-badge-row">
+          <span className="ct-admin-chip is-neutral">{session.status}</span>
+        </div>
+      </div>
+
+      <div className="ct-admin-kv-grid">
+        <div className="ct-admin-kv-card">
+          <span>Created</span>
+          <strong>{formatAdminDateTime(session.createdAtUtc)}</strong>
+        </div>
+        <div className="ct-admin-kv-card">
+          <span>Ended</span>
+          <strong>{formatAdminDateTime(session.endedAtUtc)}</strong>
+        </div>
+        <div className="ct-admin-kv-card">
+          <span>Last Position</span>
+          <strong>{formatAdminSeconds(session.lastPositionSec)}</strong>
+        </div>
+        <div className="ct-admin-kv-card">
+          <span>Duration</span>
+          <strong>{formatAdminSeconds(session.videoDurationSec)}</strong>
+        </div>
+      </div>
+
+      <div className="ct-admin-subpanel">
+        <h4 className="ct-admin-subsection-title">Engagement Insight</h4>
+        {engagement ? (
+          <>
+            <div className="ct-admin-kv-grid">
+              <div className="ct-admin-kv-card">
+                <span>Score</span>
+                <strong>{formatAdminPercent(engagement.engagementScore)}</strong>
+              </div>
+              <div className="ct-admin-kv-card">
+                <span>Threshold</span>
+                <strong>{formatAdminPercent(engagement.threshold)}</strong>
+              </div>
+              <div className="ct-admin-kv-card">
+                <span>Status</span>
+                <strong>{engagement.status}</strong>
+              </div>
+              <div className="ct-admin-kv-card">
+                <span>Model</span>
+                <strong>{engagement.model?.toUpperCase() || "-"}</strong>
+              </div>
+            </div>
+
+            <div className="ct-admin-muted-box">{engagement.explanation || "No explanation available."}</div>
+
+            <EngagementSignalSection
+              title="Top Positive Signals"
+              tone="positive"
+              raw={engagement.topPositive}
+              model={engagement.model}
+            />
+            <EngagementSignalSection
+              title="Top Negative Signals"
+              tone="negative"
+              raw={engagement.topNegative}
+              model={engagement.model}
+            />
+            <JsonBlock title="Raw Engagement Payload" value={engagement} />
+          </>
+        ) : (
+          <div className="ct-admin-muted-box">No engagement result found for this session.</div>
+        )}
+      </div>
+
+      <div className="ct-admin-subpanel">
+        <h4 className="ct-admin-subsection-title">Session Features</h4>
+        <KeyValueGrid data={featuresRecord} />
+        <JsonBlock title="Raw Session Features" value={session.features ?? {}} />
+      </div>
+    </article>
+  );
+}
+
+function QuizCard({ quiz }: { quiz: AdminLearnerQuizInsight }) {
+  return (
+    <article className="ct-admin-resource-card">
+      <div className="ct-admin-resource-head">
+        <div>
+          <h3 className="ct-admin-resource-title">{quiz.videoTitle}</h3>
+          <p className="ct-admin-resource-subtitle">
+            Quiz {quiz.quizId} • Session {quiz.sessionId}
+          </p>
+        </div>
+        <div className="ct-admin-badge-row">
+          <span className="ct-admin-chip is-neutral">{quiz.difficulty || "UNKNOWN"}</span>
+        </div>
+      </div>
+
+      <div className="ct-admin-kv-grid">
+        <div className="ct-admin-kv-card">
+          <span>Total Questions</span>
+          <strong>{quiz.totalQuestions ?? quiz.questions.length}</strong>
+        </div>
+        <div className="ct-admin-kv-card">
+          <span>Created</span>
+          <strong>{formatAdminDateTime(quiz.createdAtUtc)}</strong>
+        </div>
+        <div className="ct-admin-kv-card">
+          <span>Latest Score</span>
+          <strong>{formatAdminPercent(quiz.latestAttempt?.scorePercent)}</strong>
+        </div>
+        <div className="ct-admin-kv-card">
+          <span>Passed</span>
+          <strong>{quiz.latestAttempt?.passedFlag ? "Yes" : "No"}</strong>
+        </div>
+      </div>
+
+      {quiz.latestAttempt && (
+        <div className="ct-admin-subpanel">
+          <h4 className="ct-admin-subsection-title">Latest Attempt</h4>
+          <div className="ct-admin-kv-grid">
+            <div className="ct-admin-kv-card">
+              <span>Attempt Id</span>
+              <strong>{quiz.latestAttempt.attemptId}</strong>
+            </div>
+            <div className="ct-admin-kv-card">
+              <span>Correct</span>
+              <strong>{quiz.latestAttempt.correctCount ?? "-"} / {quiz.latestAttempt.totalCount ?? "-"}</strong>
+            </div>
+            <div className="ct-admin-kv-card">
+              <span>Submitted</span>
+              <strong>{formatAdminDateTime(quiz.latestAttempt.createdAtUtc)}</strong>
+            </div>
+          </div>
+          <JsonBlock title="Raw Answers" value={quiz.latestAttempt.answers ?? {}} />
+        </div>
+      )}
+
+      <div className="ct-admin-subpanel">
+        <h4 className="ct-admin-subsection-title">Question Review</h4>
+        <div className="ct-admin-question-list">
+          {quiz.questions.map((question, index) => {
+            const options = normalizeOptions(question.options);
+            const selectedAnswer = resolveQuizAnswer(quiz.latestAttempt?.answers, question);
+            return (
+              <div key={`${quiz.quizId}-${question.id}`} className="ct-admin-question-card">
+                <div className="ct-admin-question-header">
+                  <strong>Q{index + 1}</strong>
+                  <span>{question.questionType || "question"}</span>
+                </div>
+                <p className="ct-admin-question-text">{question.questionText || "-"}</p>
+
+                {options.length > 0 && (
+                  <div className="ct-admin-option-list">
+                    {options.map((option) => {
+                      const isCorrect = option.label === question.correctAnswer;
+                      const isSelected = option.label === selectedAnswer;
+                      return (
+                        <div key={option.key} className={`ct-admin-option-row ${isCorrect ? "is-correct" : ""} ${isSelected ? "is-selected" : ""}`}>
+                          <span>{option.label}</span>
+                          <div className="ct-admin-badge-row">
+                            {isSelected && <span className="ct-admin-chip is-neutral">Selected</span>}
+                            {isCorrect && <span className="ct-admin-chip is-good">Correct</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="ct-admin-kv-grid">
+                  <div className="ct-admin-kv-card">
+                    <span>Correct Answer</span>
+                    <strong>{question.correctAnswer || "-"}</strong>
+                  </div>
+                  <div className="ct-admin-kv-card">
+                    <span>Learner Answer</span>
+                    <strong>{selectedAnswer || "-"}</strong>
+                  </div>
+                </div>
+
+                <div className="ct-admin-muted-box">
+                  <strong>Explanation:</strong> {question.explanationText || "No explanation returned."}
+                </div>
+
+                <JsonBlock title="Raw Question Payload" value={question} />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function SearchCacheCard({ cache }: { cache: AdminLearnerYouTubeSearchInsight }) {
+  return (
+    <article className="ct-admin-resource-card">
+      <div className="ct-admin-resource-head">
+        <div>
+          <h3 className="ct-admin-resource-title">{cache.queryText}</h3>
+          <p className="ct-admin-resource-subtitle">Cache {cache.cacheId}</p>
+        </div>
+      </div>
+
+      <div className="ct-admin-kv-grid">
+        <div className="ct-admin-kv-card">
+          <span>Created</span>
+          <strong>{formatAdminDateTime(cache.createdAtUtc)}</strong>
+        </div>
+        <div className="ct-admin-kv-card">
+          <span>Updated</span>
+          <strong>{formatAdminDateTime(cache.updatedAtUtc)}</strong>
+        </div>
+        <div className="ct-admin-kv-card">
+          <span>Last Refreshed</span>
+          <strong>{cache.lastRefreshedOn || "-"}</strong>
+        </div>
+        <div className="ct-admin-kv-card">
+          <span>Items</span>
+          <strong>{cache.items.length}</strong>
+        </div>
+      </div>
+
+      <div className="ct-admin-search-item-list">
+        {cache.items.map((item) => (
+          <div key={`${cache.cacheId}-${item.positionIndex}-${item.videoId}`} className="ct-admin-search-item">
+            {item.thumbnailUrl ? (
+              <img src={item.thumbnailUrl} alt={item.title || "Search item"} className="ct-admin-search-thumb" />
+            ) : (
+              <div className="ct-admin-search-thumb ct-admin-search-thumb-empty" />
+            )}
+            <div className="ct-admin-search-copy">
+              <strong>{item.title || item.videoId || "Search item"}</strong>
+              <span>{item.channelTitle || "-"}</span>
+              <span>Video ID: {item.videoId || "-"}</span>
+              <span>Category: {item.categoryId || "-"}</span>
+            </div>
+            {item.iframeUrl && (
+              <a href={item.iframeUrl} target="_blank" rel="noreferrer" className="ct-btn ct-btn-secondary ct-btn-sm">
+                <ExternalLink size={14} />
+                Open
+              </a>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <JsonBlock title="Raw Search Cache Payload" value={cache} />
+    </article>
+  );
+}
+
+export function AdminLearnerProfilePage() {
+  const { learnerId } = useParams();
+  const nav = useNavigate();
+  const qc = useQueryClient();
+  const { user } = useAuthStore();
+  const [tab, setTab] = useState<LearnerProfileTab>("sessions");
+  const [certificateAction, setCertificateAction] = useState<CertificateActionState>(null);
+
+  const isAdmin = user?.role === "ADMIN";
+  const learnerIdNum = Number(learnerId);
+  const searchLimit = 30;
+
+  const profileQuery = useQuery({
+    queryKey: ["admin-learner-profile", learnerIdNum, searchLimit],
+    queryFn: () => getAdminLearnerProfile(learnerIdNum, searchLimit),
+    enabled: isAdmin && Number.isFinite(learnerIdNum),
+  });
+
+  const refreshRelatedData = () => {
+    qc.invalidateQueries({ queryKey: ["admin-learner-profile", learnerIdNum, searchLimit] });
+    qc.invalidateQueries({ queryKey: ["admin-learners"] });
+    qc.invalidateQueries({ queryKey: ["admin-certs"] });
+  };
+
+  const revokeMutation = useMutation({
+    mutationFn: (certificateId: string) => revokeCertificate(certificateId),
+    onSuccess: () => {
+      toast.success("Certificate revoked successfully");
+      setCertificateAction(null);
+      refreshRelatedData();
+    },
+    onError: (error) => {
+      toast.error(getApiMessage(error, "Failed to revoke certificate"));
+    },
+  });
+
+  const activateMutation = useMutation({
+    mutationFn: (certificateId: string) => activateCertificate(certificateId),
+    onSuccess: () => {
+      toast.success("Certificate activated successfully");
+      refreshRelatedData();
+    },
+    onError: (error) => {
+      toast.error(getApiMessage(error, "Failed to activate certificate"));
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (certificateId: string) => deleteCertificate(certificateId),
+    onSuccess: () => {
+      toast.success("Certificate deleted successfully");
+      setCertificateAction(null);
+      refreshRelatedData();
+    },
+    onError: (error) => {
+      toast.error(getApiMessage(error, "Failed to delete certificate"));
+    },
+  });
+
+  const modalOpen = Boolean(certificateAction);
+  useEffect(() => {
+    if (!modalOpen) return;
+    const prevBodyOverflow = document.body.style.overflow;
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevBodyOverflow;
+      document.documentElement.style.overflow = prevHtmlOverflow;
+    };
+  }, [modalOpen]);
+
+  const profile = profileQuery.data;
+
+  const tabItems = useMemo(() => [
+    { key: "sessions" as const, label: "Sessions + ML Insights", count: profile?.sessions.length || 0 },
+    { key: "quizzes" as const, label: "Quizzes", count: profile?.quizzes.length || 0 },
+    { key: "certificates" as const, label: "Certificates", count: profile?.certificates.length || 0 },
+    { key: "search" as const, label: "YouTube Search Cache", count: profile?.youtubeSearches.length || 0 },
+  ], [profile?.certificates.length, profile?.quizzes.length, profile?.sessions.length, profile?.youtubeSearches.length]);
+
+  if (!isAdmin) {
+    return <AdminAccessDenied />;
+  }
+
+  if (profileQuery.isLoading) {
+    return (
+      <div className="ct-slide-up ct-admin-engagement-page">
+        <div className="ct-admin-skeleton-card" />
+        <div className="ct-admin-skeleton-card" />
+        <div className="ct-admin-skeleton-card" />
+      </div>
+    );
+  }
+
+  if (!profile) {
+    return <div className="ct-empty">Learner profile not found.</div>;
+  }
+
+  const learner = profile.learner;
+
+  const renderTabContent = () => {
+    if (tab === "sessions") {
+      return profile.sessions.length > 0
+        ? profile.sessions.map((session) => <SessionCard key={session.sessionId} session={session} />)
+        : <div className="ct-admin-muted-box">No sessions found for this learner.</div>;
+    }
+
+    if (tab === "quizzes") {
+      return profile.quizzes.length > 0
+        ? profile.quizzes.map((quiz) => <QuizCard key={quiz.quizId} quiz={quiz} />)
+        : <div className="ct-admin-muted-box">No quizzes found for this learner.</div>;
+    }
+
+    if (tab === "certificates") {
+      return profile.certificates.length > 0
+        ? (
+          <div className="ct-admin-resource-grid">
+            {profile.certificates.map((certificate) => {
+              const status = (certificate.status || "").toUpperCase();
+              const isRevoked = status === "REVOKED";
+              const activating = activateMutation.isPending && activateMutation.variables === certificate.certificateId;
+              const pendingAction = certificateAction?.certificate.certificateId === certificate.certificateId
+                && (revokeMutation.isPending || deleteMutation.isPending);
+              return (
+                <article key={certificate.certificateId} className="ct-admin-resource-card">
+                  <div className="ct-admin-resource-head">
+                    <div>
+                      <h3 className="ct-admin-resource-title">{certificate.videoTitle || certificate.certificateNumber}</h3>
+                      <p className="ct-admin-resource-subtitle">{certificate.certificateNumber}</p>
+                    </div>
+                    <div className="ct-admin-badge-row">
+                      <span className={`ct-admin-chip ${isRevoked ? "is-bad" : "is-good"}`}>{status || "ACTIVE"}</span>
+                    </div>
+                  </div>
+
+                  <div className="ct-admin-kv-grid">
+                    <div className="ct-admin-kv-card">
+                      <span>Score</span>
+                      <strong>{formatAdminPercent(certificate.scorePercent)}</strong>
+                    </div>
+                    <div className="ct-admin-kv-card">
+                      <span>Engagement</span>
+                      <strong>{formatAdminPercent(certificate.finalEngagementScore)}</strong>
+                    </div>
+                    <div className="ct-admin-kv-card">
+                      <span>Quiz</span>
+                      <strong>{formatAdminPercent(certificate.finalQuizScore)}</strong>
+                    </div>
+                    <div className="ct-admin-kv-card">
+                      <span>Issued</span>
+                      <strong>{formatAdminDateTime(certificate.createdAtUtc)}</strong>
+                    </div>
+                  </div>
+
+                  <div className="ct-admin-inline-actions">
+                    {isRevoked ? (
+                      <button
+                        className="ct-btn ct-btn-primary ct-btn-sm"
+                        onClick={() => activateMutation.mutate(certificate.certificateId)}
+                        disabled={activating}
+                      >
+                        {activating ? "Activating..." : "Activate"}
+                      </button>
+                    ) : (
+                      <button
+                        className="ct-btn ct-btn-warning ct-btn-sm"
+                        onClick={() => setCertificateAction({ action: "revoke", certificate })}
+                        disabled={pendingAction}
+                      >
+                        Revoke
+                      </button>
+                    )}
+                    <button
+                      className="ct-btn ct-btn-danger ct-btn-sm"
+                      onClick={() => setCertificateAction({ action: "delete", certificate })}
+                      disabled={pendingAction}
+                    >
+                      <Trash2 size={14} />
+                      Delete
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )
+        : <div className="ct-admin-muted-box">No certificates found for this learner.</div>;
+    }
+
+    return profile.youtubeSearches.length > 0
+      ? profile.youtubeSearches.map((cache) => <SearchCacheCard key={cache.cacheId} cache={cache} />)
+      : <div className="ct-admin-muted-box">No YouTube search cache entries available.</div>;
+  };
+
+  return (
+    <div className="ct-slide-up ct-admin-engagement-page">
+      <div className="ct-admin-module-header">
+        <div>
+          <div className="ct-admin-module-kicker">Admin Only</div>
+          <h1 className="ct-page-title">Learner Profile</h1>
+          <p className="ct-page-subtitle">Inspect one learner’s sessions, ML insights, quizzes, certificates, and search cache.</p>
+        </div>
+        <div className="ct-admin-module-actions">
+          <button className="ct-btn ct-btn-secondary" onClick={() => nav("/admin")}>
+            <ArrowLeft size={14} />
+            Back to ML Dashboard
+          </button>
+        </div>
+      </div>
+
+      <section className="ct-admin-panel-card">
+        <div className="ct-admin-engagement-hero">
+          <div className="ct-admin-engagement-hero-copy">
+            <div className="ct-admin-detail-eyebrow">Learner {learner.userId}</div>
+            <h2 className="ct-admin-detail-title">{learner.name?.trim() || "Unnamed learner"}</h2>
+            <p className="ct-admin-detail-subtitle">
+              <Mail size={14} style={{ verticalAlign: "middle", marginRight: 6 }} />
+              {learner.email}
+            </p>
+          </div>
+          <div className="ct-admin-badge-row">
+            <span className={`ct-admin-chip ${learner.active !== false ? "is-good" : "is-bad"}`}>
+              {learner.active !== false ? "Active" : "Inactive"}
+            </span>
+            <span className={`ct-admin-chip ${learner.emailVerified ? "is-good" : "is-neutral"}`}>
+              {learner.emailVerified ? "Email Verified" : "Email Unverified"}
+            </span>
+            <span className="ct-admin-chip is-neutral">{learner.role}</span>
+          </div>
+        </div>
+
+        <div className="ct-admin-metric-grid ct-admin-metric-grid-compact">
+          <div className="ct-admin-metric-card">
+            <span className="ct-admin-metric-label">Created</span>
+            <strong className="ct-admin-metric-value">{formatIsoDate(learner.createdAtUtc || null)}</strong>
+            <span className="ct-admin-metric-note">Account created at</span>
+          </div>
+          <div className="ct-admin-metric-card">
+            <span className="ct-admin-metric-label">Sessions</span>
+            <strong className="ct-admin-metric-value">{learner.sessionCount ?? profile.sessions.length}</strong>
+            <span className="ct-admin-metric-note">Tracked learner sessions</span>
+          </div>
+          <div className="ct-admin-metric-card">
+            <span className="ct-admin-metric-label">Certificates</span>
+            <strong className="ct-admin-metric-value">{learner.certificateCount ?? profile.certificates.length}</strong>
+            <span className="ct-admin-metric-note">Issued certificates</span>
+          </div>
+          <div className="ct-admin-metric-card">
+            <span className="ct-admin-metric-label">Verified At</span>
+            <strong className="ct-admin-metric-value">{formatIsoDate(learner.emailVerifiedAtUtc || null)}</strong>
+            <span className="ct-admin-metric-note">Latest verification timestamp</span>
+          </div>
+        </div>
+      </section>
+
+      <section className="ct-admin-panel-card">
+        <div className="ct-admin-tab-strip">
+          {tabItems.map((item) => (
+            <button
+              key={item.key}
+              className={`ct-admin-tab-btn ${tab === item.key ? "active" : ""}`}
+              onClick={() => setTab(item.key)}
+            >
+              <span>{item.label}</span>
+              <span className="ct-admin-tab-count">{item.count}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="ct-admin-tab-panel">
+        {tab === "sessions" && (
+          <SectionHeader
+            icon={<Film size={18} />}
+            title="Sessions + ML Insights"
+            subtitle="Review raw session behavior, extracted features, and the engagement explanation per session."
+          />
+        )}
+        {tab === "quizzes" && (
+          <SectionHeader
+            icon={<BookOpen size={18} />}
+            title="Quizzes"
+            subtitle="Review quiz metadata, the latest learner attempt, and every question with answers and explanations."
+          />
+        )}
+        {tab === "certificates" && (
+          <SectionHeader
+            icon={<Award size={18} />}
+            title="Certificates"
+            subtitle="Manage certificate state and inspect final scoring evidence."
+          />
+        )}
+        {tab === "search" && (
+          <SectionHeader
+            icon={<Database size={18} />}
+            title="YouTube Search Cache"
+            subtitle="Review cached YouTube searches and the result items currently stored by the platform."
+          />
+        )}
+
+        <div className="ct-admin-resource-stack">
+          {renderTabContent()}
+        </div>
+      </section>
+
+      {certificateAction && createPortal(
+        <div className="ct-modal-backdrop" onClick={() => {
+          if (revokeMutation.isPending || deleteMutation.isPending) return;
+          setCertificateAction(null);
+        }}>
+          <div className="ct-modal-card ct-delete-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="ct-delete-modal-icon">
+              {certificateAction.action === "revoke" ? <CircleOff size={22} /> : <Trash2 size={22} />}
+            </div>
+            <h3 className="ct-delete-modal-title">
+              {certificateAction.action === "revoke" ? "Revoke Certificate?" : "Delete Certificate?"}
+            </h3>
+            <p className="ct-delete-modal-text">
+              {certificateAction.action === "revoke"
+                ? "This will mark the certificate as revoked and invalid for verification."
+                : "This will permanently delete the certificate record from the platform."}
+            </p>
+            <p className="ct-delete-modal-subtext">
+              <strong>{certificateAction.certificate.certificateNumber}</strong>
+            </p>
+            <div className="ct-modal-actions" style={{ marginTop: 16 }}>
+              <button
+                className="ct-btn ct-btn-secondary"
+                onClick={() => setCertificateAction(null)}
+                disabled={revokeMutation.isPending || deleteMutation.isPending}
+              >
+                Cancel
+              </button>
+              <button
+                className={`ct-btn ${certificateAction.action === "revoke" ? "ct-btn-warning" : "ct-btn-danger"}`}
+                onClick={() => {
+                  if (certificateAction.action === "revoke") {
+                    revokeMutation.mutate(certificateAction.certificate.certificateId);
+                    return;
+                  }
+                  deleteMutation.mutate(certificateAction.certificate.certificateId);
+                }}
+                disabled={revokeMutation.isPending || deleteMutation.isPending}
+              >
+                {certificateAction.action === "revoke"
+                  ? (revokeMutation.isPending ? "Revoking..." : "Revoke")
+                  : (deleteMutation.isPending ? "Deleting..." : "Delete")}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
+    </div>
+  );
+}

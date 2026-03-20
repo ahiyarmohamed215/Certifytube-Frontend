@@ -5,6 +5,7 @@ import toast from "react-hot-toast";
 import { getMe, login as apiLogin, resendVerification } from "../../api/auth";
 import { getApiMessage, getApiStatus } from "../../api/errors";
 import { useAuthStore } from "../../store/useAuthStore";
+import { getDefaultAppPath } from "../../app/defaultAppPath";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -58,7 +59,7 @@ export function LoginPage() {
         // keep user data from login response if /me fails transiently
       }
       toast.success("Welcome back!");
-      navigate("/home");
+      navigate(getDefaultAppPath(response.role));
     } catch (error: unknown) {
       const status = getApiStatus(error);
       const backendMessage = getApiMessage(error, "Login failed");

@@ -163,13 +163,20 @@ export interface AdminStats {
 
 export interface AdminUser {
   userId: number;
+  name?: string | null;
   email: string;
   role: string;
+  active?: boolean;
+  emailVerified?: boolean;
+  emailVerifiedAtUtc?: string | null;
+  createdAtUtc?: string;
+  sessionCount?: number;
+  certificateCount?: number;
 }
 
 export interface AdminSession {
   sessionId: string;
-  userId: number;
+  userId: number | string;
   videoId: string;
   videoTitle: string;
   status: string;
@@ -196,5 +203,116 @@ export interface AdminQuiz {
   videoId: string;
   difficulty: string;
   totalQuestions: number;
+}
+
+export interface AdminEngagementContributor {
+  feature: string;
+  shap_value?: number;
+  contribution?: number;
+  feature_value?: number | string | boolean | null;
+  behavior_category?: string;
+  [key: string]: unknown;
+}
+
+export interface AdminEngagementResult {
+  sessionId: string;
+  model: string;
+  engagementScore: number;
+  threshold: number;
+  status: "ENGAGED" | "NOT_ENGAGED" | string;
+  explanation: string;
+  topPositive: AdminEngagementContributor[] | string | null;
+  topNegative: AdminEngagementContributor[] | string | null;
+  createdAtUtc: string;
+}
+
+export interface AdminLearnerSessionInsight {
+  sessionId: string;
+  userId: string;
+  videoId: string;
+  videoTitle: string;
+  status: string;
+  createdAtUtc: string;
+  endedAtUtc?: string | null;
+  lastPositionSec?: number | null;
+  videoDurationSec?: number | null;
+  features?: Record<string, unknown> | null;
+  engagement?: AdminEngagementResult | null;
+}
+
+export interface AdminLearnerQuizAttemptInsight {
+  attemptId: number;
+  correctCount?: number | null;
+  totalCount?: number | null;
+  scorePercent?: number | null;
+  passedFlag?: boolean | null;
+  answers?: unknown;
+  createdAtUtc?: string | null;
+}
+
+export interface AdminLearnerQuizQuestionInsight {
+  id: number;
+  questionUid?: string | null;
+  positionIndex?: number | null;
+  questionType?: string | null;
+  questionText?: string | null;
+  options?: unknown;
+  correctAnswer?: string | null;
+  explanationText?: string | null;
+}
+
+export interface AdminLearnerQuizInsight {
+  quizId: string;
+  sessionId: string;
+  videoId: string;
+  videoTitle: string;
+  difficulty?: string | null;
+  totalQuestions?: number | null;
+  createdAtUtc?: string | null;
+  latestAttempt?: AdminLearnerQuizAttemptInsight | null;
+  questions: AdminLearnerQuizQuestionInsight[];
+}
+
+export interface AdminLearnerCertificateInsight {
+  certificateId: string;
+  certificateNumber: string;
+  sessionId: string;
+  quizAttemptId?: number | null;
+  scorePercent?: number | null;
+  finalEngagementScore?: number | null;
+  finalQuizScore?: number | null;
+  learnerName?: string | null;
+  videoTitle?: string | null;
+  videoId?: string | null;
+  status?: string | null;
+  createdAtUtc?: string | null;
+}
+
+export interface AdminLearnerYouTubeSearchItemInsight {
+  positionIndex?: number | null;
+  videoId?: string | null;
+  title?: string | null;
+  channelTitle?: string | null;
+  thumbnailUrl?: string | null;
+  publishedAt?: string | null;
+  iframeUrl?: string | null;
+  categoryId?: string | null;
+}
+
+export interface AdminLearnerYouTubeSearchInsight {
+  cacheId: number;
+  queryText: string;
+  lastRefreshedOn?: string | null;
+  createdAtUtc?: string | null;
+  updatedAtUtc?: string | null;
+  items: AdminLearnerYouTubeSearchItemInsight[];
+}
+
+export interface AdminLearnerProfileResponse {
+  learner: AdminUser;
+  sessions: AdminLearnerSessionInsight[];
+  quizzes: AdminLearnerQuizInsight[];
+  certificates: AdminLearnerCertificateInsight[];
+  youtubeSearches: AdminLearnerYouTubeSearchInsight[];
 }
 

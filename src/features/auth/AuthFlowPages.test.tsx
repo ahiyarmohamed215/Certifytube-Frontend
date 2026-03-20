@@ -42,6 +42,8 @@ function renderAuthPages(path: "/signup" | "/login") {
         <Routes>
           <Route path="/signup" element={<SignupPage />} />
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/home" element={<div>Learner Home</div>} />
+          <Route path="/admin" element={<div>Admin Dashboard</div>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -105,5 +107,35 @@ describe("Auth production UX", () => {
       expect(mockedResendVerification).toHaveBeenCalledWith("learner@example.com");
     });
     expect(await screen.findByText("Verification email sent again.")).toBeInTheDocument();
+  });
+
+  it("login sends admin users to the admin dashboard", async () => {
+    const user = userEvent.setup();
+    mockedLogin.mockResolvedValue({
+      userId: 99,
+      email: "admin@example.com",
+      name: "Admin",
+      role: "ADMIN",
+      emailVerified: true,
+      token: "token-1",
+      tokenType: "Bearer",
+    });
+    mockedGetMe.mockResolvedValue({
+      userId: 99,
+      email: "admin@example.com",
+      role: "ADMIN",
+      name: "Admin",
+    });
+    renderAuthPages("/login");
+
+    await user.type(screen.getByLabelText("Email"), "admin@example.com");
+    await user.type(screen.getByLabelText("Password"), "password-123");
+    await user.click(screen.getByRole("button", { name: /sign in/i }));
+
+    await waitFor(() => {
+      expect(mockedLogin).toHaveBeenCalledWith("admin@example.com", "password-123");
+    });
+    expect(await screen.findByText("Admin Dashboard")).toBeInTheDocument();
+    expect(screen.queryByText("Learner Home")).not.toBeInTheDocument();
   });
 });

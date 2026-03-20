@@ -17,6 +17,8 @@ export function AppShell({ children }: PropsWithChildren) {
   const navigate = useNavigate();
   const { isLoggedIn, user, clearAuth } = useAuthStore();
 
+  const isAdmin = isLoggedIn && user?.role === "ADMIN";
+
   const isHomeActive = location.pathname === "/" || location.pathname === "/home";
   const isLandingPage = location.pathname === "/";
   const isHomePage = location.pathname === "/home";
@@ -28,7 +30,9 @@ export function AppShell({ children }: PropsWithChildren) {
   const isCertifiedActive = location.pathname === "/certified"
     || location.pathname.startsWith("/certificate/");
   const isProfileActive = location.pathname === "/profile" || location.pathname.startsWith("/profile/");
-  const isAdminActive = location.pathname === "/admin";
+  const isAdminActive = location.pathname === "/admin"
+    || location.pathname.startsWith("/admin/engagement")
+    || location.pathname.startsWith("/admin/learners");
   const isLoginActive = location.pathname === "/login";
   const isSignupActive = location.pathname === "/signup";
 
@@ -43,6 +47,7 @@ export function AppShell({ children }: PropsWithChildren) {
     navigate("/login");
   };
 
+  /* ── Learner nav (unchanged) ── */
   const primaryItems: NavItem[] = [
     { to: "/home", label: "Home", icon: Home, active: isHomeActive },
     { to: "/my-learnings", label: "Learnings", icon: BookOpen, active: isLearnActive },
@@ -50,29 +55,43 @@ export function AppShell({ children }: PropsWithChildren) {
     { to: "/profile", label: "Profile", icon: User, active: isProfileActive },
   ];
 
-  const mobileItems: NavItem[] = isLoggedIn
+  /* ── Mobile items depend on role ── */
+  const mobileItems: NavItem[] = isAdmin
     ? [
-      ...primaryItems,
-      ...(user?.role === "ADMIN"
-        ? [{ to: "/admin", label: "Admin", icon: Shield, active: isAdminActive }]
-        : []),
+      { to: "/admin", label: "ML Dashboard", icon: Shield, active: isAdminActive },
     ]
-    : [
-      { to: "/", label: "Home", icon: Home, active: isHomeActive },
-      { to: "/login", label: "Login", icon: LogIn, active: isLoginActive },
-      { to: "/signup", label: "Sign Up", icon: UserPlus, active: isSignupActive },
-    ];
+    : isLoggedIn
+      ? [
+        ...primaryItems,
+      ]
+      : [
+        { to: "/", label: "Home", icon: Home, active: isHomeActive },
+        { to: "/login", label: "Login", icon: LogIn, active: isLoginActive },
+        { to: "/signup", label: "Sign Up", icon: UserPlus, active: isSignupActive },
+      ];
 
   return (
     <div className={`ct-shell ${mobileItems.length > 0 ? "ct-shell-with-tabbar" : ""}`}>
       <header className="ct-header">
         <div className="ct-header-inner">
-          <Link to={isLoggedIn ? "/home" : "/"} className="ct-logo">
+          <Link to={isAdmin ? "/admin" : isLoggedIn ? "/home" : "/"} className="ct-logo">
             CertifyTube
           </Link>
 
           <nav className="ct-nav ct-nav-desktop">
-            {isLoggedIn && primaryItems.map(({ to, label, icon: Icon, active }) => (
+            {/* Admin sees only ML Dashboard link */}
+            {isAdmin && (
+              <Link
+                to="/admin"
+                className={`ct-nav-link ${isAdminActive ? "active" : ""}`}
+              >
+                <Shield size={15} className="ct-nav-link-icon" />
+                ML Dashboard
+              </Link>
+            )}
+
+            {/* Learner sees standard nav */}
+            {isLoggedIn && !isAdmin && primaryItems.map(({ to, label, icon: Icon, active }) => (
               <Link
                 key={to}
                 to={to}
@@ -82,16 +101,6 @@ export function AppShell({ children }: PropsWithChildren) {
                 {label}
               </Link>
             ))}
-
-            {isLoggedIn && user?.role === "ADMIN" && (
-              <Link
-                to="/admin"
-                className={`ct-nav-link ${isAdminActive ? "active" : ""}`}
-              >
-                <Shield size={15} className="ct-nav-link-icon" />
-                Admin
-              </Link>
-            )}
 
             {isLoggedIn ? (
               <div className="ct-nav-user">
@@ -139,7 +148,8 @@ export function AppShell({ children }: PropsWithChildren) {
         </div>
       </main>
 
-      {((isLandingPage || isProfileActive) && !isHomePage) && (
+      {/* Footer only for learner (non-admin) on landing/profile pages */}
+      {!isAdmin && ((isLandingPage || isProfileActive) && !isHomePage) && (
         <footer className="ct-footer ct-footer-compact">
           <div className="ct-footer-compact-inner">
             <div className="ct-footer-main">

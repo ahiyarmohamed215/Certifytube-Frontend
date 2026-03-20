@@ -173,7 +173,9 @@ export function CertifiedPage() {
           <CertifiedRow
             key={video.sessionId}
             video={video}
-            onOpen={() => video.certificateId && navigate(`/certificate/${video.certificateId}`)}
+            onOpen={() => video.certificateId && navigate(`/certificate/${video.certificateId}`, {
+              state: { fromPath: "/certified" },
+            })}
             onDelete={() => requestDelete(video)}
             deleting={
               deleteMutation.isPending

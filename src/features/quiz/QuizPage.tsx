@@ -1096,7 +1096,7 @@ export function QuizPage() {
       {generateConfirm && createPortal(
         <div className="ct-modal-backdrop" onClick={closeGenerateConfirm}>
           <div
-            className="ct-modal-card ct-quiz-lock-modal"
+            className="ct-modal-card ct-quiz-lock-modal ct-quiz-generate-modal"
             onClick={(event) => event.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -1105,10 +1105,25 @@ export function QuizPage() {
             <div className="ct-quiz-lock-icon">
               <ClipboardCheck size={20} />
             </div>
+            <p className="ct-quiz-generate-kicker">Quiz Attempt Confirmation</p>
             <h3 className="ct-quiz-lock-title">Generate quiz now?</h3>
             <p className="ct-quiz-lock-text">
-              Generating this quiz uses 1 attempt. Remaining attempts after generate: {Math.max(0, generateConfirm.remainingAttempts - 1)} of {generateConfirm.maxAttempts}.
+              Generating this quiz uses 1 attempt immediately. Continue only when the learner is ready to start the quiz now.
             </p>
+            <div className="ct-quiz-generate-stats">
+              <div className="ct-quiz-generate-stat">
+                <span className="ct-quiz-generate-stat-label">Attempts Left Now</span>
+                <strong className="ct-quiz-generate-stat-value">{generateConfirm.remainingAttempts}</strong>
+              </div>
+              <div className="ct-quiz-generate-stat">
+                <span className="ct-quiz-generate-stat-label">After Generate</span>
+                <strong className="ct-quiz-generate-stat-value">{Math.max(0, generateConfirm.remainingAttempts - 1)}</strong>
+              </div>
+              <div className="ct-quiz-generate-stat">
+                <span className="ct-quiz-generate-stat-label">Max Attempts</span>
+                <strong className="ct-quiz-generate-stat-value">{generateConfirm.maxAttempts}</strong>
+              </div>
+            </div>
             <div className="ct-modal-actions">
               <button className="ct-btn ct-btn-secondary" onClick={closeGenerateConfirm} disabled={generating}>
                 Cancel

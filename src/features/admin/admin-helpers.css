@@ -1,0 +1,12 @@
+.ct-admin-clickable-row {
+  transition: background-color 0.2s ease, transform 0.2s ease;
+}
+
+.ct-admin-clickable-row:hover {
+  background-color: var(--ct-bg-elevated);
+  transform: translateY(-1px);
+}
+
+.ct-admin-clickable-row:active {
+  transform: translateY(0);
+}

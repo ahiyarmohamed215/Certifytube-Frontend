@@ -25,20 +25,49 @@ function looksLikeEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+const CERTIFICATE_EXPORT_MARGIN_PT = 16;
+const CERTIFICATE_EXPORT_MIN_WIDTH = 1120;
+
 type CertificateLocationState = {
   fromStatus?: "active" | "completed" | "quiz";
   fromPath?: string;
 };
+
+function normalizeCertificateCloseTarget(locationState: CertificateLocationState | null): {
+  path: string;
+  state?: { initialStatus: "active" | "completed" };
+} {
+  const rawPath = (locationState?.fromPath || "").trim();
+  const rawStatus = locationState?.fromStatus;
+
+  if (rawPath === "/certified") {
+    return { path: "/certified" };
+  }
+
+  if (rawStatus === "active" || rawStatus === "completed") {
+    return {
+      path: `/my-learnings?status=${rawStatus}`,
+      state: { initialStatus: rawStatus },
+    };
+  }
+
+  if (rawPath === "/my-learnings?status=active") {
+    return { path: rawPath, state: { initialStatus: "active" } };
+  }
+
+  if (rawPath === "/my-learnings?status=completed") {
+    return { path: rawPath, state: { initialStatus: "completed" } };
+  }
+
+  return { path: "/certified" };
+}
 
 export function CertificatePage() {
   const { certificateId } = useParams();
   const nav = useNavigate();
   const location = useLocation();
   const locationState = (location.state as CertificateLocationState | null) || null;
-  const fromStatus = locationState?.fromStatus === "active" || locationState?.fromStatus === "completed" || locationState?.fromStatus === "quiz"
-    ? locationState.fromStatus
-    : "quiz";
-  const fromPath = (locationState?.fromPath || `/my-learnings?status=${fromStatus}`).trim();
+  const closeTarget = normalizeCertificateCloseTarget(locationState);
   const [downloading, setDownloading] = useState(false);
   const { user } = useAuthStore();
   const { data: me } = useQuery({
@@ -62,18 +91,60 @@ export function CertificatePage() {
       }
     }
 
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    const rect = el.getBoundingClientRect();
+    const exportWidth = Math.max(CERTIFICATE_EXPORT_MIN_WIDTH, Math.ceil(rect.width));
+    const exportHost = document.createElement("div");
+    const clone = el.cloneNode(true) as HTMLElement;
+    const cloneImages = Array.from(clone.querySelectorAll("img"));
 
-    return html2canvas(el, {
-      scale: Math.max(2, Math.min(3, window.devicePixelRatio || 2)),
-      useCORS: true,
-      logging: false,
-      backgroundColor: null,
-      windowWidth: Math.ceil(el.scrollWidth),
-      windowHeight: Math.ceil(el.scrollHeight),
-      scrollX: 0,
-      scrollY: -window.scrollY,
-    });
+    exportHost.setAttribute("data-cert-export-host", "true");
+    exportHost.style.position = "fixed";
+    exportHost.style.left = "-200vw";
+    exportHost.style.top = "0";
+    exportHost.style.width = `${exportWidth}px`;
+    exportHost.style.padding = "0";
+    exportHost.style.margin = "0";
+    exportHost.style.pointerEvents = "none";
+    exportHost.style.zIndex = "-1";
+    exportHost.style.background = "transparent";
+
+    clone.id = `${el.id}-export`;
+    clone.classList.add("ct-pc-export");
+    clone.style.width = `${exportWidth}px`;
+    clone.style.maxWidth = "none";
+    clone.style.margin = "0";
+    clone.style.transform = "none";
+
+    exportHost.appendChild(clone);
+    document.body.appendChild(exportHost);
+
+    try {
+      await Promise.all(cloneImages.map((img) => {
+        if (img.complete) return Promise.resolve();
+        return new Promise<void>((resolve) => {
+          const done = () => resolve();
+          img.addEventListener("load", done, { once: true });
+          img.addEventListener("error", done, { once: true });
+        });
+      }));
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+      const captureHeight = Math.max(Math.ceil(clone.scrollHeight), Math.ceil(clone.getBoundingClientRect().height));
+      return await html2canvas(clone, {
+        scale: Math.max(2, Math.min(3, window.devicePixelRatio || 2)),
+        useCORS: true,
+        logging: false,
+        backgroundColor: "#f9f7f3",
+        width: exportWidth,
+        height: captureHeight,
+        windowWidth: exportWidth,
+        windowHeight: captureHeight,
+        scrollX: 0,
+        scrollY: 0,
+      });
+    } finally {
+      document.body.removeChild(exportHost);
+    }
   };
 
   const handleDownload = async () => {
@@ -86,15 +157,30 @@ export function CertificatePage() {
     setDownloading(true);
     try {
       const canvas = await captureCertificateCanvas(el);
+      const imgData = canvas.toDataURL("image/png");
       const pdf = new jsPDF({
-        orientation: canvas.width >= canvas.height ? "landscape" : "portrait",
-        unit: "px",
-        format: [canvas.width, canvas.height],
+        orientation: "landscape",
+        unit: "pt",
+        format: "a4",
         compress: true,
       });
-      const imgData = canvas.toDataURL("image/png");
-      pdf.addImage(imgData, "PNG", 0, 0, canvas.width, canvas.height);
-      pdf.save(`Certificate-${learnerName.replace(/\s+/g, "_")}.pdf`);
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const maxWidth = pageWidth - (CERTIFICATE_EXPORT_MARGIN_PT * 2);
+      const maxHeight = pageHeight - (CERTIFICATE_EXPORT_MARGIN_PT * 2);
+      const imageRatio = canvas.width / canvas.height;
+
+      let renderWidth = maxWidth;
+      let renderHeight = renderWidth / imageRatio;
+      if (renderHeight > maxHeight) {
+        renderHeight = maxHeight;
+        renderWidth = renderHeight * imageRatio;
+      }
+
+      const x = (pageWidth - renderWidth) / 2;
+      const y = (pageHeight - renderHeight) / 2;
+      pdf.addImage(imgData, "PNG", x, y, renderWidth, renderHeight, undefined, "FAST");
+      pdf.save(`Certificate-${learnerName.replace(/\s+/g, "_") || cert?.certificateId || certificateId || "certificate"}.pdf`);
       toast.success("Certificate downloaded");
     } catch (e: any) {
       toast.error(e?.message || "Failed to generate certificate PDF");
@@ -130,22 +216,28 @@ export function CertificatePage() {
     ? certLearnerName
     : profileName || certLearnerName || "Certified Learner";
   const platformName = cert.platformName || "CertifyTube";
-  const goMyLearnings = () => nav(fromPath, { state: { initialStatus: fromStatus } });
+  const closeCertificatePage = () => {
+    if (closeTarget.state) {
+      nav(closeTarget.path, { state: closeTarget.state });
+      return;
+    }
+    nav(closeTarget.path);
+  };
   const goBack = () => {
     if (window.history.length > 1) {
       nav(-1);
       return;
     }
-    goMyLearnings();
+    closeCertificatePage();
   };
 
   return (
-    <div className="ct-slide-up" style={{ maxWidth: 960, margin: "0 auto" }}>
+    <div className="ct-slide-up" style={{ maxWidth: CERTIFICATE_EXPORT_MIN_WIDTH, width: "100%", margin: "0 auto" }}>
       <div className="ct-analyze-topbar ct-no-print">
         <button className="ct-btn ct-btn-secondary ct-btn-sm ct-analyze-back-btn" onClick={goBack}>
           <ArrowLeft size={14} /> Back
         </button>
-        <button className="ct-btn ct-btn-sm ct-analyze-close-btn" onClick={goMyLearnings}>
+        <button className="ct-btn ct-btn-sm ct-analyze-close-btn" onClick={closeCertificatePage}>
           <X size={14} /> Close
         </button>
       </div>

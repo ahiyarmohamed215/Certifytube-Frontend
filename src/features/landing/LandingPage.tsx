@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { ArrowRight, Brain, Award, ShieldCheck, PlayCircle, ClipboardCheck, BadgeCheck } from "lucide-react";
 import { useAuthStore } from "../../store/useAuthStore";
+import { getDefaultAppPath } from "../../app/defaultAppPath";
 
 const steps = [
   {
@@ -40,14 +41,16 @@ const highlights = [
 
 export function LandingPage() {
   const navigate = useNavigate();
-  const { isLoggedIn } = useAuthStore();
+  const { isLoggedIn, user } = useAuthStore();
+  const isAdmin = user?.role?.toUpperCase() === "ADMIN";
+  const defaultAppPath = getDefaultAppPath(user?.role);
 
   const handlePrimary = () => {
-    navigate(isLoggedIn ? "/home" : "/signup");
+    navigate(isLoggedIn ? defaultAppPath : "/signup");
   };
 
   const handleSecondary = () => {
-    navigate(isLoggedIn ? "/home" : "/login");
+    navigate(isLoggedIn ? defaultAppPath : "/login");
   };
 
   return (
@@ -72,7 +75,7 @@ export function LandingPage() {
             <ArrowRight size={16} />
           </button>
           <button className="ct-btn ct-btn-secondary ct-btn-lg" onClick={handleSecondary}>
-            {isLoggedIn ? "Browse Content" : "Log In"}
+            {isLoggedIn ? (isAdmin ? "Open Admin Panel" : "Browse Content") : "Log In"}
           </button>
         </div>
 
