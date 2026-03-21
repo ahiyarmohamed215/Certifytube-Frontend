@@ -44,12 +44,6 @@ export interface YouTubeSearchResponse {
   videos: YouTubeVideo[];
 }
 
-// ---- Public ----
-export interface PublicPlatformStatsResponse {
-  learnerCount: number;
-  certificateCount: number;
-}
-
 // ---- Dashboard ----
 export interface DashboardVideo {
   sessionId: string;

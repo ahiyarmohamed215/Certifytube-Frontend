@@ -5200,43 +5200,6 @@ div[class*="go"] {
   font-weight: 400;
 }
 
-.ct-landing-trust {
-  margin-top: 28px;
-  width: min(100%, 560px);
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.ct-landing-trust-card {
-  background: #ffffff;
-  border: 1px solid #ececec;
-  border-radius: 10px;
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  text-align: left;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.02);
-}
-
-.ct-landing-trust-value {
-  font-size: 28px;
-  line-height: 1.1;
-  font-weight: 800;
-  color: #1a1a1a;
-  letter-spacing: -0.6px;
-}
-
-.ct-landing-trust-label {
-  margin-top: 6px;
-  font-size: 12px;
-  color: #666;
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
-  font-weight: 700;
-}
-
 .ct-landing-actions {
   margin-top: 48px;
   display: flex;
@@ -5502,17 +5465,6 @@ div[class*="go"] {
     flex-direction: column;
     width: 100%;
     gap: 12px;
-  }
-
-  .ct-landing-trust {
-    width: 100%;
-    grid-template-columns: 1fr;
-    gap: 10px;
-  }
-
-  .ct-landing-trust-card {
-    align-items: center;
-    text-align: center;
   }
 
   .ct-landing-actions .ct-btn {

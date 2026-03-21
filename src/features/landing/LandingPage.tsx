@@ -1,10 +1,7 @@
-import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowRight, Brain, Award, ShieldCheck, PlayCircle, ClipboardCheck, BadgeCheck } from "lucide-react";
 import { useAuthStore } from "../../store/useAuthStore";
 import { getDefaultAppPath } from "../../app/defaultAppPath";
-import { getPublicPlatformStats } from "../../api/public";
-import type { PublicPlatformStatsResponse } from "../../types/api";
 
 const steps = [
   {
@@ -42,36 +39,11 @@ const highlights = [
   },
 ];
 
-function formatTrustCount(value: number): string {
-  if (!Number.isFinite(value) || value < 0) return "0";
-  return value.toLocaleString("en-US");
-}
-
 export function LandingPage() {
   const navigate = useNavigate();
   const { isLoggedIn, user } = useAuthStore();
   const isAdmin = user?.role?.toUpperCase() === "ADMIN";
   const defaultAppPath = getDefaultAppPath(user?.role);
-  const [trustStats, setTrustStats] = useState<PublicPlatformStatsResponse | null>(null);
-  const [statsUnavailable, setStatsUnavailable] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-
-    getPublicPlatformStats()
-      .then((stats) => {
-        if (!active) return;
-        setTrustStats(stats);
-      })
-      .catch(() => {
-        if (!active) return;
-        setStatsUnavailable(true);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
 
   const handlePrimary = () => {
     navigate(isLoggedIn ? defaultAppPath : "/home");
@@ -96,21 +68,6 @@ export function LandingPage() {
         <p className="ct-landing-subtitle">
           CertifyTube analyzes your viewing engagement and validates your understanding, issuing definitive certificates for self-taught expertise.
         </p>
-
-        <div className="ct-landing-trust" aria-live="polite">
-          <article className="ct-landing-trust-card">
-            <span className="ct-landing-trust-value">
-              {trustStats ? formatTrustCount(trustStats.learnerCount) : statsUnavailable ? "Growing" : "Loading..."}
-            </span>
-            <span className="ct-landing-trust-label">Learners Signed Up</span>
-          </article>
-          <article className="ct-landing-trust-card">
-            <span className="ct-landing-trust-value">
-              {trustStats ? formatTrustCount(trustStats.certificateCount) : statsUnavailable ? "Growing" : "Loading..."}
-            </span>
-            <span className="ct-landing-trust-label">Certificates Generated</span>
-          </article>
-        </div>
 
         <div className="ct-landing-actions">
           <button className="ct-btn ct-btn-primary ct-btn-lg" onClick={handlePrimary}>
