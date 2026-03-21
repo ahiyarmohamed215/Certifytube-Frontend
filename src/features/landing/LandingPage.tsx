@@ -46,7 +46,7 @@ export function LandingPage() {
   const defaultAppPath = getDefaultAppPath(user?.role);
 
   const handlePrimary = () => {
-    navigate(isLoggedIn ? defaultAppPath : "/signup");
+    navigate(isLoggedIn ? defaultAppPath : "/home");
   };
 
   const handleSecondary = () => {

@@ -69,9 +69,10 @@ export function AppShell({ children }: PropsWithChildren) {
         { to: "/login", label: "Login", icon: LogIn, active: isLoginActive },
         { to: "/signup", label: "Sign Up", icon: UserPlus, active: isSignupActive },
       ];
+  const showMobileTabbar = mobileItems.length > 0 && !isLandingPage;
 
   return (
-    <div className={`ct-shell ${mobileItems.length > 0 ? "ct-shell-with-tabbar" : ""}`}>
+    <div className={`ct-shell ${showMobileTabbar ? "ct-shell-with-tabbar" : ""}`}>
       <header className="ct-header">
         <div className="ct-header-inner">
           <Link to={isAdmin ? "/admin" : isLoggedIn ? "/home" : "/"} className="ct-logo">
@@ -176,7 +177,7 @@ export function AppShell({ children }: PropsWithChildren) {
         </footer>
       )}
 
-      {mobileItems.length > 0 && (
+      {showMobileTabbar && (
         <nav className="ct-mobile-tabbar" aria-label="Mobile app navigation">
           {mobileItems.map(({ to, label, icon: Icon, active }) => (
             <Link

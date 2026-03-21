@@ -42,7 +42,7 @@ export const router = createBrowserRouter([
   { path: "/verify/:token", element: wrap(<VerifyPage />) },
 
   // Protected — Learner
-  { path: "/home", element: wrap(<SearchPage />, true) },
+  { path: "/home", element: wrap(<SearchPage />) },
   { path: "/my-learnings", element: wrap(<MyLearningsPage />, true) },
   { path: "/certified", element: wrap(<CertifiedPage />, true) },
   { path: "/profile", element: wrap(<ProfilePage />, true) },
