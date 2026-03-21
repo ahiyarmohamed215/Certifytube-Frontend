@@ -44,14 +44,6 @@ export interface YouTubeSearchResponse {
   videos: YouTubeVideo[];
 }
 
-export interface TranscriptResponse {
-  videoId: string;
-  transcript: string;
-  transcriptLength: number;
-  fromCache: boolean;
-  cachedAtUtc: string;
-}
-
 // ---- Dashboard ----
 export interface DashboardVideo {
   sessionId: string;
@@ -154,13 +146,6 @@ export interface CertificateInfo {
 }
 
 // ---- Admin ----
-export interface AdminStats {
-  totalUsers: number;
-  totalSessions: number;
-  totalCertificates: number;
-  totalQuizzes: number;
-}
-
 export interface AdminUser {
   userId: number;
   name?: string | null;
@@ -172,37 +157,6 @@ export interface AdminUser {
   createdAtUtc?: string;
   sessionCount?: number;
   certificateCount?: number;
-}
-
-export interface AdminSession {
-  sessionId: string;
-  userId: number | string;
-  videoId: string;
-  videoTitle: string;
-  status: string;
-  createdAt: string;
-}
-
-export interface AdminCertificate {
-  certificateId: string;
-  certificateNumber: string;
-  userId: number;
-  sessionId: string;
-  scorePercent: number;
-  createdAtUtc: string;
-  status?: 'ACTIVE' | 'REVOKED';
-  valid?: boolean;
-  learnerName?: string;
-  videoTitle?: string;
-}
-
-export interface AdminQuiz {
-  quizId: string;
-  sessionId: string;
-  userId: number;
-  videoId: string;
-  difficulty: string;
-  totalQuestions: number;
 }
 
 export interface AdminEngagementContributor {

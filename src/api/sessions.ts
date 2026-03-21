@@ -15,27 +15,33 @@ export async function endSession(sessionId: string): Promise<void> {
 }
 
 export async function deleteSessionRecord(sessionId: string): Promise<void> {
-  try {
-    await http.delete(`/api/sessions/${sessionId}`);
-    return;
-  } catch {
-    try {
-      await http.delete(`/api/admin/sessions/${sessionId}`);
-      return;
-    } catch {
-      throw new Error("Delete API not available for learner. Add DELETE /api/sessions/{sessionId} in backend.");
-    }
-  }
+  await http.delete(`/api/sessions/${sessionId}`);
 }
 
 export async function analyzeSession(
   sessionId: string,
   model?: string
 ): Promise<AnalyzeResponse> {
-  const res = await http.post<AnalyzeResponse>(
-    `/api/sessions/${sessionId}/analyze`,
-    null,
-    { params: model ? { model } : undefined }
-  );
-  return res.data;
+  const analyzeTimeoutMs = 180000;
+  try {
+    const res = await http.post<AnalyzeResponse>(
+      `/api/sessions/${sessionId}/analyze`,
+      null,
+      {
+        params: model ? { model } : undefined,
+        timeout: analyzeTimeoutMs,
+      }
+    );
+    return res.data;
+  } catch (error: any) {
+    const message = String(error?.message || "");
+    if (/timeout|econnaborted/i.test(message)) {
+      throw new Error(
+        `Engagement analysis timed out after ${Math.round(
+          analyzeTimeoutMs / 1000
+        )}s. The model service may be cold-starting, so please try once again.`
+      );
+    }
+    throw error;
+  }
 }
