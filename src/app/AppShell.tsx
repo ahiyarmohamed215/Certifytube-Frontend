@@ -35,6 +35,9 @@ export function AppShell({ children }: PropsWithChildren) {
     || location.pathname.startsWith("/admin/learners");
   const isLoginActive = location.pathname === "/login";
   const isSignupActive = location.pathname === "/signup";
+  const footerCoursesPath = isLoggedIn ? "/home" : "/login";
+  const footerCertifiedPath = isLoggedIn ? "/certified" : "/login";
+  const footerPortfolioPath = isLoggedIn ? "/profile" : "/login";
 
   const handleLogout = async () => {
     try {
@@ -164,9 +167,9 @@ export function AppShell({ children }: PropsWithChildren) {
               </div>
               <div className="ct-footer-links-inline">
                 <Link to="/">How it Works</Link>
-                <Link to="/home">Courses</Link>
-                <Link to="/verify/demo">Verify</Link>
-                <Link to="/profile">Portfolio</Link>
+                <Link to={footerCoursesPath}>Courses</Link>
+                <Link to={footerCertifiedPath}>Certified</Link>
+                <Link to={footerPortfolioPath}>Portfolio</Link>
               </div>
             </div>
             <div className="ct-footer-bottom-line">

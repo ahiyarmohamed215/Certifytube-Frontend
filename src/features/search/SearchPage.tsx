@@ -310,7 +310,7 @@ export function SearchPage() {
               />
               <input
                 className="ct-input"
-                style={{ paddingLeft: 42, paddingRight: 112, height: 46 }}
+                style={{ paddingLeft: 42, paddingRight: 112, height: 46, fontSize: 16 }}
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="Search topic or paste YouTube URL"
