@@ -1,6 +1,6 @@
-import type { PropsWithChildren } from "react";
+import { useEffect, useState, type PropsWithChildren } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { type LucideIcon, Home, BookOpen, Award, User, Shield, LogIn, UserPlus } from "lucide-react";
+import { type LucideIcon, Home, BookOpen, Award, User, Shield, LogIn, UserPlus, Menu, X } from "lucide-react";
 import { useAuthStore } from "../store/useAuthStore";
 import { logout as apiLogout } from "../api/auth";
 import toast from "react-hot-toast";
@@ -16,6 +16,7 @@ export function AppShell({ children }: PropsWithChildren) {
   const location = useLocation();
   const navigate = useNavigate();
   const { isLoggedIn, user, clearAuth } = useAuthStore();
+  const [mobileLandingMenuOpen, setMobileLandingMenuOpen] = useState(false);
 
   const isAdmin = isLoggedIn && user?.role === "ADMIN";
 
@@ -35,9 +36,14 @@ export function AppShell({ children }: PropsWithChildren) {
     || location.pathname.startsWith("/admin/learners");
   const isLoginActive = location.pathname === "/login";
   const isSignupActive = location.pathname === "/signup";
+  const isGuestLandingPage = isLandingPage && !isLoggedIn;
   const footerCoursesPath = isLoggedIn ? "/home" : "/login";
   const footerCertifiedPath = isLoggedIn ? "/certified" : "/login";
   const footerPortfolioPath = isLoggedIn ? "/profile" : "/login";
+
+  useEffect(() => {
+    setMobileLandingMenuOpen(false);
+  }, [location.pathname, location.hash]);
 
   const handleLogout = async () => {
     try {
@@ -72,10 +78,11 @@ export function AppShell({ children }: PropsWithChildren) {
         { to: "/login", label: "Login", icon: LogIn, active: isLoginActive },
         { to: "/signup", label: "Sign Up", icon: UserPlus, active: isSignupActive },
       ];
-  const showMobileTabbar = mobileItems.length > 0 && !isLandingPage;
+  const showMobileTabbar = mobileItems.length > 0 && !isGuestLandingPage;
+  const hideFooterWithTabbar = showMobileTabbar && !isLandingPage;
 
   return (
-    <div className={`ct-shell ${showMobileTabbar ? "ct-shell-with-tabbar" : ""}`}>
+    <div className={`ct-shell ${showMobileTabbar ? "ct-shell-with-tabbar" : ""} ${hideFooterWithTabbar ? "ct-shell-hide-footer" : ""}`}>
       <header className="ct-header">
         <div className="ct-header-inner">
           <Link to={isAdmin ? "/admin" : isLoggedIn ? "/home" : "/"} className="ct-logo">
@@ -143,8 +150,49 @@ export function AppShell({ children }: PropsWithChildren) {
               Logout
             </button>
           )}
+
+          {isGuestLandingPage && (
+            <button
+              className="ct-btn ct-btn-ghost ct-btn-sm ct-mobile-landing-menu-btn"
+              onClick={() => setMobileLandingMenuOpen((prev) => !prev)}
+              aria-label={mobileLandingMenuOpen ? "Close navigation menu" : "Open navigation menu"}
+              aria-expanded={mobileLandingMenuOpen}
+              aria-controls="ct-mobile-landing-menu"
+              title={mobileLandingMenuOpen ? "Close menu" : "Open menu"}
+            >
+              {mobileLandingMenuOpen ? <X size={18} /> : <Menu size={18} />}
+            </button>
+          )}
         </div>
       </header>
+
+      {isGuestLandingPage && mobileLandingMenuOpen && (
+        <>
+          <button
+            className="ct-mobile-landing-menu-backdrop"
+            onClick={() => setMobileLandingMenuOpen(false)}
+            aria-label="Close navigation menu"
+          />
+          <nav
+            id="ct-mobile-landing-menu"
+            className="ct-mobile-landing-menu"
+            aria-label="Landing quick navigation"
+          >
+            <Link to="/" className={isHomeActive ? "active" : ""} onClick={() => setMobileLandingMenuOpen(false)}>
+              <Home size={16} />
+              Home
+            </Link>
+            <Link to="/login" className={isLoginActive ? "active" : ""} onClick={() => setMobileLandingMenuOpen(false)}>
+              <LogIn size={16} />
+              Login
+            </Link>
+            <Link to="/signup" className={isSignupActive ? "active" : ""} onClick={() => setMobileLandingMenuOpen(false)}>
+              <UserPlus size={16} />
+              Sign Up
+            </Link>
+          </nav>
+        </>
+      )}
 
       <main className="ct-main">
         <div key={location.pathname} className="ct-route-switch">
@@ -166,7 +214,7 @@ export function AppShell({ children }: PropsWithChildren) {
                 </p>
               </div>
               <div className="ct-footer-links-inline">
-                <Link to="/">How it Works</Link>
+                <Link to="/#how-it-works">How it Works</Link>
                 <Link to={footerCoursesPath}>Courses</Link>
                 <Link to={footerCertifiedPath}>Certified</Link>
                 <Link to={footerPortfolioPath}>Portfolio</Link>

@@ -1,4 +1,5 @@
-import { useNavigate } from "react-router-dom";
+import { useEffect } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowRight, Brain, Award, ShieldCheck, PlayCircle, ClipboardCheck, BadgeCheck } from "lucide-react";
 import { useAuthStore } from "../../store/useAuthStore";
 import { getDefaultAppPath } from "../../app/defaultAppPath";
@@ -40,10 +41,20 @@ const highlights = [
 ];
 
 export function LandingPage() {
+  const location = useLocation();
   const navigate = useNavigate();
   const { isLoggedIn, user } = useAuthStore();
   const isAdmin = user?.role?.toUpperCase() === "ADMIN";
   const defaultAppPath = getDefaultAppPath(user?.role);
+
+  useEffect(() => {
+    if (location.hash !== "#how-it-works") return;
+    const target = document.getElementById("how-it-works");
+    if (!target) return;
+    requestAnimationFrame(() => {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, [location.hash]);
 
   const handlePrimary = () => {
     navigate(isLoggedIn ? defaultAppPath : "/home");
@@ -86,16 +97,26 @@ export function LandingPage() {
         </div>
       </section>
 
-      <section className="ct-landing-steps">
-        {steps.map(({ icon: Icon, title, desc }) => (
-          <article key={title} className="ct-landing-step-card">
-            <div className="ct-landing-step-icon">
-              <Icon size={20} />
-            </div>
-            <h3>{title}</h3>
-            <p>{desc}</p>
-          </article>
-        ))}
+      <section id="how-it-works" className="ct-landing-how-it-works">
+        <div className="ct-landing-section-head">
+          <span className="ct-landing-section-kicker">How It Works</span>
+          <h2>A clear path from learning to verified certification.</h2>
+          <p>
+            Follow a structured flow that captures engagement, validates understanding,
+            and proves outcomes with trusted credentials.
+          </p>
+        </div>
+        <div className="ct-landing-steps">
+          {steps.map(({ icon: Icon, title, desc }) => (
+            <article key={title} className="ct-landing-step-card">
+              <div className="ct-landing-step-icon">
+                <Icon size={20} />
+              </div>
+              <h3>{title}</h3>
+              <p>{desc}</p>
+            </article>
+          ))}
+        </div>
       </section>
 
       <section className="ct-landing-features">
