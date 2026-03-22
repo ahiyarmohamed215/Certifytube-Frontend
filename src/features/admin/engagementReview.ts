@@ -193,9 +193,25 @@ export function normalizeEngagementContributors(
     }
   }
 
-  if (!Array.isArray(resolved)) return [];
+  let contributors: unknown[] = [];
+  if (Array.isArray(resolved)) {
+    contributors = resolved;
+  } else if (isRecord(resolved)) {
+    const candidateKeys = ["items", "contributors", "topPositive", "topNegative", "data"];
+    for (const key of candidateKeys) {
+      const candidate = resolved[key];
+      if (Array.isArray(candidate)) {
+        contributors = candidate;
+        break;
+      }
+    }
+  }
 
-  return resolved
+  if (!Array.isArray(contributors)) return [];
+
+  const normalizedModel = String(model || "").toLowerCase();
+
+  return contributors
     .filter(isRecord)
     .map((item, index) => {
       const rawFeatureKey = typeof item.feature === "string" && item.feature.trim()
@@ -204,8 +220,8 @@ export function normalizeEngagementContributors(
       const behaviorCategory = typeof item.behavior_category === "string" && item.behavior_category.trim()
         ? item.behavior_category.trim()
         : "general";
-      const impactLabel = model === "ebm" ? "Contribution" : "SHAP Value";
-      const impactValue = asFiniteNumber(model === "ebm" ? item.contribution : item.shap_value);
+      const impactLabel = normalizedModel === "ebm" ? "Contribution" : "SHAP Value";
+      const impactValue = asFiniteNumber(normalizedModel === "ebm" ? item.contribution : item.shap_value);
       const featureValueRaw = typeof item.feature_value === "string"
         || typeof item.feature_value === "number"
         || typeof item.feature_value === "boolean"

@@ -242,31 +242,10 @@ export interface AdminLearnerCertificateInsight {
   createdAtUtc?: string | null;
 }
 
-export interface AdminLearnerYouTubeSearchItemInsight {
-  positionIndex?: number | null;
-  videoId?: string | null;
-  title?: string | null;
-  channelTitle?: string | null;
-  thumbnailUrl?: string | null;
-  publishedAt?: string | null;
-  iframeUrl?: string | null;
-  categoryId?: string | null;
-}
-
-export interface AdminLearnerYouTubeSearchInsight {
-  cacheId: number;
-  queryText: string;
-  lastRefreshedOn?: string | null;
-  createdAtUtc?: string | null;
-  updatedAtUtc?: string | null;
-  items: AdminLearnerYouTubeSearchItemInsight[];
-}
-
 export interface AdminLearnerProfileResponse {
   learner: AdminUser;
   sessions: AdminLearnerSessionInsight[];
   quizzes: AdminLearnerQuizInsight[];
   certificates: AdminLearnerCertificateInsight[];
-  youtubeSearches: AdminLearnerYouTubeSearchInsight[];
 }
 

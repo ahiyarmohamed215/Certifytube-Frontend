@@ -6,8 +6,6 @@ import {
   Award,
   BookOpen,
   CircleOff,
-  Database,
-  ExternalLink,
   Film,
   Mail,
   Trash2,
@@ -27,7 +25,6 @@ import type {
   AdminLearnerCertificateInsight,
   AdminLearnerQuizInsight,
   AdminLearnerSessionInsight,
-  AdminLearnerYouTubeSearchInsight,
 } from "../../types/api";
 import { formatIsoDate } from "./engagementReview";
 import { normalizeEngagementContributors } from "./engagementReview";
@@ -43,7 +40,7 @@ import {
   stringifyPrimitive,
 } from "./adminLearnerUtils";
 
-type LearnerProfileTab = "sessions" | "quizzes" | "certificates" | "search";
+type LearnerProfileTab = "sessions" | "quizzes" | "certificates";
 
 type CertificateActionState = {
   action: "revoke" | "delete";
@@ -360,64 +357,6 @@ function QuizCard({ quiz }: { quiz: AdminLearnerQuizInsight }) {
   );
 }
 
-function SearchCacheCard({ cache }: { cache: AdminLearnerYouTubeSearchInsight }) {
-  return (
-    <article className="ct-admin-resource-card">
-      <div className="ct-admin-resource-head">
-        <div>
-          <h3 className="ct-admin-resource-title">{cache.queryText}</h3>
-          <p className="ct-admin-resource-subtitle">Cache {cache.cacheId}</p>
-        </div>
-      </div>
-
-      <div className="ct-admin-kv-grid">
-        <div className="ct-admin-kv-card">
-          <span>Created</span>
-          <strong>{formatAdminDateTime(cache.createdAtUtc)}</strong>
-        </div>
-        <div className="ct-admin-kv-card">
-          <span>Updated</span>
-          <strong>{formatAdminDateTime(cache.updatedAtUtc)}</strong>
-        </div>
-        <div className="ct-admin-kv-card">
-          <span>Last Refreshed</span>
-          <strong>{cache.lastRefreshedOn || "-"}</strong>
-        </div>
-        <div className="ct-admin-kv-card">
-          <span>Items</span>
-          <strong>{cache.items.length}</strong>
-        </div>
-      </div>
-
-      <div className="ct-admin-search-item-list">
-        {cache.items.map((item) => (
-          <div key={`${cache.cacheId}-${item.positionIndex}-${item.videoId}`} className="ct-admin-search-item">
-            {item.thumbnailUrl ? (
-              <img src={item.thumbnailUrl} alt={item.title || "Search item"} className="ct-admin-search-thumb" />
-            ) : (
-              <div className="ct-admin-search-thumb ct-admin-search-thumb-empty" />
-            )}
-            <div className="ct-admin-search-copy">
-              <strong>{item.title || item.videoId || "Search item"}</strong>
-              <span>{item.channelTitle || "-"}</span>
-              <span>Video ID: {item.videoId || "-"}</span>
-              <span>Category: {item.categoryId || "-"}</span>
-            </div>
-            {item.iframeUrl && (
-              <a href={item.iframeUrl} target="_blank" rel="noreferrer" className="ct-btn ct-btn-secondary ct-btn-sm">
-                <ExternalLink size={14} />
-                Open
-              </a>
-            )}
-          </div>
-        ))}
-      </div>
-
-      <JsonBlock title="Raw Search Cache Payload" value={cache} />
-    </article>
-  );
-}
-
 export function AdminLearnerProfilePage() {
   const { learnerId } = useParams();
   const nav = useNavigate();
@@ -428,16 +367,16 @@ export function AdminLearnerProfilePage() {
 
   const isAdmin = user?.role === "ADMIN";
   const learnerIdNum = Number(learnerId);
-  const searchLimit = 30;
+  const hasValidLearnerId = Number.isFinite(learnerIdNum) && learnerIdNum > 0;
 
   const profileQuery = useQuery({
-    queryKey: ["admin-learner-profile", learnerIdNum, searchLimit],
-    queryFn: () => getAdminLearnerProfile(learnerIdNum, searchLimit),
-    enabled: isAdmin && Number.isFinite(learnerIdNum),
+    queryKey: ["admin-learner-profile", learnerIdNum],
+    queryFn: () => getAdminLearnerProfile(learnerIdNum),
+    enabled: isAdmin && hasValidLearnerId,
   });
 
   const refreshRelatedData = () => {
-    qc.invalidateQueries({ queryKey: ["admin-learner-profile", learnerIdNum, searchLimit] });
+    qc.invalidateQueries({ queryKey: ["admin-learner-profile", learnerIdNum] });
     qc.invalidateQueries({ queryKey: ["admin-learners"] });
     qc.invalidateQueries({ queryKey: ["admin-certs"] });
   };
@@ -496,11 +435,22 @@ export function AdminLearnerProfilePage() {
     { key: "sessions" as const, label: "Sessions + ML Insights", count: profile?.sessions.length || 0 },
     { key: "quizzes" as const, label: "Quizzes", count: profile?.quizzes.length || 0 },
     { key: "certificates" as const, label: "Certificates", count: profile?.certificates.length || 0 },
-    { key: "search" as const, label: "YouTube Search Cache", count: profile?.youtubeSearches.length || 0 },
-  ], [profile?.certificates.length, profile?.quizzes.length, profile?.sessions.length, profile?.youtubeSearches.length]);
+  ], [profile?.certificates.length, profile?.quizzes.length, profile?.sessions.length]);
 
   if (!isAdmin) {
     return <AdminAccessDenied />;
+  }
+
+  if (!hasValidLearnerId) {
+    return (
+      <div className="ct-empty" style={{ minHeight: 220 }}>
+        <div className="ct-empty-icon">!</div>
+        <p>Invalid learner id.</p>
+        <button className="ct-btn ct-btn-secondary" onClick={() => nav("/admin")} style={{ marginTop: 16 }}>
+          Back to ML Dashboard
+        </button>
+      </div>
+    );
   }
 
   if (profileQuery.isLoading) {
@@ -513,8 +463,30 @@ export function AdminLearnerProfilePage() {
     );
   }
 
+  if (profileQuery.isError) {
+    return (
+      <div className="ct-empty" style={{ minHeight: 260 }}>
+        <div className="ct-empty-icon">!</div>
+        <p>{getApiMessage(profileQuery.error, "Failed to load learner profile.")}</p>
+        <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+          <button className="ct-btn ct-btn-secondary" onClick={() => nav("/admin")}>
+            Back to ML Dashboard
+          </button>
+          <button className="ct-btn ct-btn-primary" onClick={() => profileQuery.refetch()}>
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (!profile) {
-    return <div className="ct-empty">Learner profile not found.</div>;
+    return (
+      <div className="ct-empty" style={{ minHeight: 220 }}>
+        <div className="ct-empty-icon">0</div>
+        <p>Learner profile not found.</p>
+      </div>
+    );
   }
 
   const learner = profile.learner;
@@ -608,9 +580,7 @@ export function AdminLearnerProfilePage() {
         : <div className="ct-admin-muted-box">No certificates found for this learner.</div>;
     }
 
-    return profile.youtubeSearches.length > 0
-      ? profile.youtubeSearches.map((cache) => <SearchCacheCard key={cache.cacheId} cache={cache} />)
-      : <div className="ct-admin-muted-box">No YouTube search cache entries available.</div>;
+    return null;
   };
 
   return (
@@ -619,7 +589,7 @@ export function AdminLearnerProfilePage() {
         <div>
           <div className="ct-admin-module-kicker">Admin Only</div>
           <h1 className="ct-page-title">Learner Profile</h1>
-          <p className="ct-page-subtitle">Inspect one learner’s sessions, ML insights, quizzes, certificates, and search cache.</p>
+          <p className="ct-page-subtitle">Inspect one learner's sessions, ML insights, quizzes, and certificates.</p>
         </div>
         <div className="ct-admin-module-actions">
           <button className="ct-btn ct-btn-secondary" onClick={() => nav("/admin")}>
@@ -662,14 +632,14 @@ export function AdminLearnerProfilePage() {
             <span className="ct-admin-metric-note">Tracked learner sessions</span>
           </div>
           <div className="ct-admin-metric-card">
+            <span className="ct-admin-metric-label">Quizzes</span>
+            <strong className="ct-admin-metric-value">{profile.quizzes.length}</strong>
+            <span className="ct-admin-metric-note">Generated learner quizzes</span>
+          </div>
+          <div className="ct-admin-metric-card">
             <span className="ct-admin-metric-label">Certificates</span>
             <strong className="ct-admin-metric-value">{learner.certificateCount ?? profile.certificates.length}</strong>
             <span className="ct-admin-metric-note">Issued certificates</span>
-          </div>
-          <div className="ct-admin-metric-card">
-            <span className="ct-admin-metric-label">Verified At</span>
-            <strong className="ct-admin-metric-value">{formatIsoDate(learner.emailVerifiedAtUtc || null)}</strong>
-            <span className="ct-admin-metric-note">Latest verification timestamp</span>
           </div>
         </div>
       </section>
@@ -709,13 +679,6 @@ export function AdminLearnerProfilePage() {
             icon={<Award size={18} />}
             title="Certificates"
             subtitle="Manage certificate state and inspect final scoring evidence."
-          />
-        )}
-        {tab === "search" && (
-          <SectionHeader
-            icon={<Database size={18} />}
-            title="YouTube Search Cache"
-            subtitle="Review cached YouTube searches and the result items currently stored by the platform."
           />
         )}
 

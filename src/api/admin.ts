@@ -9,10 +9,8 @@ export async function getAdminLearners(): Promise<AdminUser[]> {
     return res.data;
 }
 
-export async function getAdminLearnerProfile(learnerId: number, searchLimit = 30): Promise<AdminLearnerProfileResponse> {
-    const res = await http.get<AdminLearnerProfileResponse>(`/api/admin/learners/${learnerId}/profile`, {
-        params: { searchLimit },
-    });
+export async function getAdminLearnerProfile(learnerId: number): Promise<AdminLearnerProfileResponse> {
+    const res = await http.get<AdminLearnerProfileResponse>(`/api/admin/learners/${learnerId}/profile`);
     return res.data;
 }
 
