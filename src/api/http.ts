@@ -12,7 +12,7 @@ export type ApiClientError = Error & {
 
 export const http = axios.create({
   baseURL: BASE_URL,
-  timeout: 60000,
+  timeout: 120000,
   headers: { "Content-Type": "application/json" },
 });
 

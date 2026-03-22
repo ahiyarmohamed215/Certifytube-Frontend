@@ -22,7 +22,7 @@ export async function analyzeSession(
   sessionId: string,
   model?: string
 ): Promise<AnalyzeResponse> {
-  const analyzeTimeoutMs = 180000;
+  const analyzeTimeoutMs = 120000;
   try {
     const res = await http.post<AnalyzeResponse>(
       `/api/sessions/${sessionId}/analyze`,

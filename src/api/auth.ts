@@ -7,7 +7,7 @@ import type {
     AuthMessageResponse,
 } from "../types/api";
 
-const AUTH_REQUEST_TIMEOUT_MS = 90_000;
+const AUTH_REQUEST_TIMEOUT_MS = 120_000;
 const AUTH_RETRY_DELAY_MS = 1_500;
 
 function shouldRetryAuthRequest(error: unknown): boolean {
