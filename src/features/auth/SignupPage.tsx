@@ -11,6 +11,7 @@ export function SignupPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [signupSuccess, setSignupSuccess] = useState(false);
@@ -26,7 +27,7 @@ export function SignupPage() {
     const trimmedName = name.trim();
     const trimmedEmail = email.trim().toLowerCase();
 
-    if (!trimmedName || !trimmedEmail || !password.trim()) {
+    if (!trimmedName || !trimmedEmail || !password.trim() || !confirmPassword.trim()) {
       setFormError("All fields are required");
       return;
     }
@@ -40,6 +41,10 @@ export function SignupPage() {
     }
     if (password.length < 8 || password.length > 128) {
       setFormError("Password must be between 8 and 128 characters");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setFormError("Passwords do not match");
       return;
     }
 
@@ -144,6 +149,19 @@ export function SignupPage() {
                   placeholder="Minimum 8 characters"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
+                  disabled={loading}
+                />
+              </div>
+
+              <div className="ct-form-group">
+                <label className="ct-form-label" htmlFor="signup-confirm-password">Confirm Password</label>
+                <input
+                  id="signup-confirm-password"
+                  className="ct-input"
+                  type="password"
+                  placeholder="Re-enter your password"
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
                   disabled={loading}
                 />
               </div>

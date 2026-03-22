@@ -71,6 +71,7 @@ describe("Auth production UX", () => {
     await user.type(screen.getByLabelText("Full Name"), "Learner One");
     await user.type(screen.getByLabelText("Email"), "learner@example.com");
     await user.type(screen.getByLabelText("Password"), "password-123");
+    await user.type(screen.getByLabelText("Confirm Password"), "password-123");
     await user.click(screen.getByRole("button", { name: /create account/i }));
 
     await waitFor(() => {

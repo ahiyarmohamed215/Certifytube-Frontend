@@ -4782,13 +4782,14 @@ div[class*="go"] {
     border: 1px solid rgba(230, 57, 70, 0.28);
     background: rgba(230, 57, 70, 0.1);
     color: #c21d2d;
-    box-shadow: 0 8px 18px rgba(230, 57, 70, 0.16);
+    box-shadow: none;
   }
 
   .ct-mobile-landing-menu-btn:hover {
     border-color: rgba(230, 57, 70, 0.45);
     background: rgba(230, 57, 70, 0.14);
     color: #ab1422;
+    box-shadow: none;
   }
 
   .ct-mobile-landing-menu-backdrop {
