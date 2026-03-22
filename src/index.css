@@ -5229,6 +5229,28 @@ div[class*="go"] {
   margin: 0 auto;
 }
 
+.ct-landing>section {
+  position: relative;
+}
+
+.ct-landing>section:not(:last-of-type) {
+  padding-bottom: 34px;
+}
+
+.ct-landing>section:not(:last-of-type)::after {
+  content: "";
+  position: absolute;
+  left: clamp(6px, 2vw, 22px);
+  right: clamp(6px, 2vw, 22px);
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg,
+      rgba(18, 24, 32, 0),
+      rgba(18, 24, 32, 0.14) 18%,
+      rgba(18, 24, 32, 0.14) 82%,
+      rgba(18, 24, 32, 0));
+}
+
 .ct-landing-hero {
   display: flex;
   flex-direction: column;
@@ -5502,8 +5524,8 @@ div[class*="go"] {
   display: flex;
   flex-direction: column;
   gap: 34px;
-  padding: 56px 0 0;
-  border-top: 1px solid #f0f0f0;
+  padding: 36px 0 0;
+  border-top: none;
 }
 
 .ct-landing-features-head {
@@ -5639,6 +5661,10 @@ div[class*="go"] {
   .ct-landing {
     padding: 14px 14px 54px;
     gap: 24px;
+  }
+
+  .ct-landing>section:not(:last-of-type) {
+    padding-bottom: 22px;
   }
 
   .ct-landing-hero {
