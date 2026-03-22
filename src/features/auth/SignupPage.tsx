@@ -3,7 +3,7 @@ import { CheckCircle2, Mail, Send, UserPlus } from "lucide-react";
 import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
 import { resendVerification, signup as apiSignup } from "../../api/auth";
-import { getApiMessage, getApiStatus } from "../../api/errors";
+import { getApiMessage, getApiStatus, isTimeoutError } from "../../api/errors";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -59,9 +59,12 @@ export function SignupPage() {
       toast.success("Check your email to verify account");
     } catch (error: unknown) {
       const status = getApiStatus(error);
+      const baseMessage = getApiMessage(error, "Signup failed");
       const message = status === 429
         ? "Too many requests, try later"
-        : getApiMessage(error, "Signup failed");
+        : isTimeoutError(error)
+          ? "Signup request timed out. If backend is waking up, wait a few seconds and try again."
+          : baseMessage;
       setFormError(message);
       toast.error(message);
     } finally {
@@ -89,7 +92,9 @@ export function SignupPage() {
       const status = getApiStatus(error);
       const message = status === 429
         ? "Too many requests, try later"
-        : getApiMessage(error, "Failed to resend verification email");
+        : isTimeoutError(error)
+          ? "Email resend timed out. Backend may be waking up. Please try again."
+          : getApiMessage(error, "Failed to resend verification email");
       setResendError(message);
       toast.error(message);
     } finally {

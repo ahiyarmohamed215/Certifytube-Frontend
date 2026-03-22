@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Mail } from "lucide-react";
 import { forgotPassword } from "../../api/auth";
-import { getApiMessage, getApiStatus } from "../../api/errors";
+import { getApiMessage, getApiStatus, isTimeoutError } from "../../api/errors";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const GENERIC_SUCCESS = "If this email exists, password reset instructions have been sent.";
@@ -37,6 +37,8 @@ export function ForgotPasswordPage() {
       const status = getApiStatus(error);
       if (status === 429) {
         setRateLimitMessage("Too many requests, try later");
+      } else if (isTimeoutError(error)) {
+        setErrorMessage("Request timed out. Backend may be waking up. Please retry.");
       } else if (status === 400) {
         setErrorMessage(getApiMessage(error, "Request failed"));
       }

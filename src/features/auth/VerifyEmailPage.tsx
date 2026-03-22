@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, MailCheck, RefreshCw, XCircle } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { resendVerification, verifyEmail } from "../../api/auth";
-import { getApiCode, getApiMessage, getApiStatus } from "../../api/errors";
+import { getApiCode, getApiMessage, getApiStatus, isTimeoutError } from "../../api/errors";
 
 type VerifyState =
   | "loading"
@@ -66,7 +66,11 @@ export function VerifyEmailPage() {
       }
 
       setState("error");
-      setMessage(getApiMessage(error, "Verification failed. Please try again."));
+      setMessage(
+        isTimeoutError(error)
+          ? "Verification request timed out. Backend may be waking up. Please retry."
+          : getApiMessage(error, "Verification failed. Please try again."),
+      );
     }
   }, [token]);
 
@@ -104,7 +108,11 @@ export function VerifyEmailPage() {
       setResendSuccess(response.message || "Verification email has been sent.");
     } catch (error: unknown) {
       const status = getApiStatus(error);
-      const fallback = status === 429 ? "Too many requests, try later" : "Failed to resend verification email";
+      const fallback = status === 429
+        ? "Too many requests, try later"
+        : isTimeoutError(error)
+          ? "Email resend timed out. Backend may be waking up. Please try again."
+          : "Failed to resend verification email";
       setResendError(getApiMessage(error, fallback));
     } finally {
       setResendLoading(false);

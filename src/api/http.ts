@@ -7,11 +7,12 @@ export type ApiClientError = Error & {
   method?: string;
   requestUrl?: string;
   data?: unknown;
+  code?: string;
 };
 
 export const http = axios.create({
   baseURL: BASE_URL,
-  timeout: 30000,
+  timeout: 60000,
   headers: { "Content-Type": "application/json" },
 });
 
@@ -87,6 +88,7 @@ http.interceptors.response.use(
 
     const status = err.response?.status;
     const method = String(err.config?.method || "").toUpperCase();
+    const code = typeof err.code === "string" ? err.code : undefined;
 
     // Extract backend error message
     const msg =
@@ -112,6 +114,8 @@ http.interceptors.response.use(
           `Forbidden (403) on ${endpoint}. ` +
           "You are authenticated, but not allowed for this resource (role/ownership restriction).";
       }
+    } else if (!status && /timeout|econnaborted/i.test(String(msg))) {
+      finalMsg = "Request timed out. Backend may be waking up. Please retry in a few seconds.";
     } else if (status && method && requestUrl && !msg.includes(requestUrl)) {
       finalMsg = `${msg} (${status}) - ${method} ${requestUrl}`;
     }
@@ -121,6 +125,7 @@ http.interceptors.response.use(
     out.method = method || undefined;
     out.requestUrl = requestUrl || undefined;
     out.data = err.response?.data;
+    out.code = code;
     return Promise.reject(out);
   }
 );

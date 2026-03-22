@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { LogIn, Send } from "lucide-react";
 import toast from "react-hot-toast";
 import { getMe, login as apiLogin, resendVerification } from "../../api/auth";
-import { getApiMessage, getApiStatus } from "../../api/errors";
+import { getApiMessage, getApiStatus, isTimeoutError } from "../../api/errors";
 import { useAuthStore } from "../../store/useAuthStore";
 import { getDefaultAppPath } from "../../app/defaultAppPath";
 
@@ -63,14 +63,25 @@ export function LoginPage() {
     } catch (error: unknown) {
       const status = getApiStatus(error);
       const backendMessage = getApiMessage(error, "Login failed");
+      const timeoutMessage = "Login request timed out. Backend may be waking up. Please try again in a few seconds.";
       if (isUnverifiedMessage(backendMessage)) {
         setLoginError("Your email is not verified. Please verify your account before logging in.");
         setUnverifiedEmail(trimmedEmail);
       } else {
-        const message = status === 429 ? "Too many requests, try later" : backendMessage;
+        const message = status === 429
+          ? "Too many requests, try later"
+          : isTimeoutError(error)
+            ? timeoutMessage
+            : backendMessage;
         setLoginError(message);
       }
-      toast.error(status === 429 ? "Too many requests, try later" : backendMessage);
+      toast.error(
+        status === 429
+          ? "Too many requests, try later"
+          : isTimeoutError(error)
+            ? timeoutMessage
+            : backendMessage,
+      );
     } finally {
       setLoading(false);
     }
@@ -96,7 +107,9 @@ export function LoginPage() {
       const status = getApiStatus(error);
       const message = status === 429
         ? "Too many requests, try later"
-        : getApiMessage(error, "Failed to resend verification email");
+        : isTimeoutError(error)
+          ? "Email resend timed out. Backend may be waking up. Please try again."
+          : getApiMessage(error, "Failed to resend verification email");
       setResendError(message);
       toast.error(message);
     } finally {

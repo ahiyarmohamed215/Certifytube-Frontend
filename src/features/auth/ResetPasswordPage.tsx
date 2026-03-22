@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { KeyRound } from "lucide-react";
 import toast from "react-hot-toast";
 import { resetPassword } from "../../api/auth";
-import { getApiMessage, getApiStatus } from "../../api/errors";
+import { getApiMessage, getApiStatus, isTimeoutError } from "../../api/errors";
 
 export function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
@@ -47,7 +47,9 @@ export function ResetPasswordPage() {
       const status = getApiStatus(error);
       const message = status === 429
         ? "Too many requests, try later"
-        : getApiMessage(error, "Failed to reset password");
+        : isTimeoutError(error)
+          ? "Reset request timed out. Backend may be waking up. Please retry."
+          : getApiMessage(error, "Failed to reset password");
       setErrorMessage(message);
       toast.error(message);
     } finally {

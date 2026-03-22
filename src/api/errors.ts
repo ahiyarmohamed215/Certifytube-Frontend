@@ -31,3 +31,10 @@ export function getApiCode(error: unknown): string {
   const payload = (err?.data || {}) as ApiErrorPayload;
   return typeof payload?.code === "string" ? payload.code.trim() : "";
 }
+
+export function isTimeoutError(error: unknown): boolean {
+  const err = error as ApiClientError;
+  const message = String(err?.message || "").toLowerCase();
+  const code = String((err as { code?: unknown })?.code || "").toLowerCase();
+  return code === "econnaborted" || /timeout|econnaborted/.test(message);
+}

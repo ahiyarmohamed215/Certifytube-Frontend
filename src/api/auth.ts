@@ -1,10 +1,35 @@
 import { http } from "./http";
+import type { ApiClientError } from "./http";
 import type {
     LoginResponse,
     SignupResponse,
     UserInfo,
     AuthMessageResponse,
 } from "../types/api";
+
+const AUTH_REQUEST_TIMEOUT_MS = 90_000;
+const AUTH_RETRY_DELAY_MS = 1_500;
+
+function shouldRetryAuthRequest(error: unknown): boolean {
+    const err = error as ApiClientError;
+    if (err?.status) return false;
+    const code = String((err as { code?: unknown })?.code || "").toLowerCase();
+    const message = String(err?.message || "").toLowerCase();
+    return code === "econnaborted"
+        || /timeout|econnaborted|network error|failed to fetch|load failed/i.test(message);
+}
+
+async function withColdStartRetry<T>(request: () => Promise<T>): Promise<T> {
+    try {
+        return await request();
+    } catch (error) {
+        if (!shouldRetryAuthRequest(error)) {
+            throw error;
+        }
+        await new Promise((resolve) => setTimeout(resolve, AUTH_RETRY_DELAY_MS));
+        return request();
+    }
+}
 
 function readName(payload: any): string | undefined {
     const direct =
@@ -62,17 +87,24 @@ function normalizeMessageResponse(payload: any): AuthMessageResponse {
 }
 
 export async function signup(email: string, password: string, name: string): Promise<SignupResponse> {
-    const res = await http.post("/api/auth/signup", { email, password, name });
+    const res = await withColdStartRetry(() => http.post("/api/auth/signup", { email, password, name }, {
+        // Signup can be slower due cold-start + verification email dispatch.
+        timeout: AUTH_REQUEST_TIMEOUT_MS,
+    }));
     return normalizeSignupResponse(res.data);
 }
 
 export async function login(email: string, password: string): Promise<LoginResponse> {
-    const res = await http.post("/api/auth/login", { email, password });
+    const res = await withColdStartRetry(() => http.post("/api/auth/login", { email, password }, {
+        timeout: AUTH_REQUEST_TIMEOUT_MS,
+    }));
     return normalizeLoginResponse(res.data);
 }
 
 export async function getMe(): Promise<UserInfo> {
-    const res = await http.get("/api/auth/me");
+    const res = await withColdStartRetry(() => http.get("/api/auth/me", {
+        timeout: AUTH_REQUEST_TIMEOUT_MS,
+    }));
     return normalizeUserInfo(res.data);
 }
 
@@ -85,24 +117,31 @@ export async function deleteMyAccount(): Promise<void> {
 }
 
 export async function forgotPassword(email: string): Promise<AuthMessageResponse> {
-    const res = await http.post("/api/auth/forgot-password", { email });
+    const res = await withColdStartRetry(() => http.post("/api/auth/forgot-password", { email }, {
+        timeout: AUTH_REQUEST_TIMEOUT_MS,
+    }));
     return normalizeMessageResponse(res.data);
 }
 
 export async function resendVerification(email: string): Promise<AuthMessageResponse> {
-    const res = await http.post("/api/auth/resend-verification", { email });
+    const res = await withColdStartRetry(() => http.post("/api/auth/resend-verification", { email }, {
+        timeout: AUTH_REQUEST_TIMEOUT_MS,
+    }));
     return normalizeMessageResponse(res.data);
 }
 
 export async function verifyEmail(token: string): Promise<AuthMessageResponse> {
-    const res = await http.get("/api/auth/verify-email", {
+    const res = await withColdStartRetry(() => http.get("/api/auth/verify-email", {
         params: { token },
-    });
+        timeout: AUTH_REQUEST_TIMEOUT_MS,
+    }));
     return normalizeMessageResponse(res.data);
 }
 
 export async function resetPassword(token: string, newPassword: string): Promise<AuthMessageResponse> {
-    const res = await http.post("/api/auth/reset-password", { token, newPassword });
+    const res = await withColdStartRetry(() => http.post("/api/auth/reset-password", { token, newPassword }, {
+        timeout: AUTH_REQUEST_TIMEOUT_MS,
+    }));
     return normalizeMessageResponse(res.data);
 }
 
