@@ -121,9 +121,9 @@ export function LandingPage() {
 
       <section className="ct-landing-features">
         <div className="ct-landing-features-head">
-          <h2>Validation for serious learners.</h2>
+          <h2>Certification integrity for serious learners.</h2>
           <p>
-            Build a definitive portfolio of your expertise with verifiable certificates backed by real data.
+            Present credentials built on measured engagement, assessed knowledge, and verifiable outcomes.
           </p>
         </div>
         <div className="ct-landing-feature-grid">
