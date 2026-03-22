@@ -178,7 +178,7 @@ export function AppShell({ children }: PropsWithChildren) {
             className="ct-mobile-landing-menu"
             aria-label="Landing quick navigation"
           >
-            <Link to="/" className={isHomeActive ? "active" : ""} onClick={() => setMobileLandingMenuOpen(false)}>
+            <Link to="/home" className={isHomeActive ? "active" : ""} onClick={() => setMobileLandingMenuOpen(false)}>
               <Home size={16} />
               Home
             </Link>
