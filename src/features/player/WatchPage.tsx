@@ -506,7 +506,6 @@ export function WatchPage() {
     const hasMatchMedia = typeof window.matchMedia === "function";
     const isTouchMobile = (hasMatchMedia && window.matchMedia("(max-width: 900px), (pointer: coarse)").matches)
       || navigator.maxTouchPoints > 0;
-    if (isTouchMobile) return;
 
     const pauseIfPlaying = () => {
       const player = playerRef.current;
@@ -524,7 +523,11 @@ export function WatchPage() {
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
-        pauseIfPlaying();
+        if (!isTouchMobile) {
+          pauseIfPlaying();
+        }
+        stopTimer();
+        void flush();
       }
     };
 
@@ -533,7 +536,7 @@ export function WatchPage() {
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [stopTimer]);
+  }, [flush, stopTimer]);
 
   useEffect(() => {
     if (sessionEnded) {

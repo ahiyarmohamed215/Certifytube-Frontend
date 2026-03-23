@@ -123,7 +123,7 @@ export function SignupPage() {
                   id="signup-name"
                   className="ct-input"
                   type="text"
-                  placeholder="John Doe"
+                  placeholder="Your Name"
                   value={name}
                   onChange={(event) => setName(event.target.value)}
                   autoFocus
