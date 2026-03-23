@@ -503,6 +503,11 @@ export function WatchPage() {
   }, [flush, getPendingCount, stopTimer]);
 
   useEffect(() => {
+    const hasMatchMedia = typeof window.matchMedia === "function";
+    const isTouchMobile = (hasMatchMedia && window.matchMedia("(max-width: 900px), (pointer: coarse)").matches)
+      || navigator.maxTouchPoints > 0;
+    if (isTouchMobile) return;
+
     const pauseIfPlaying = () => {
       const player = playerRef.current;
       if (!player || sessionEndedRef.current) return;
@@ -857,6 +862,8 @@ export function WatchPage() {
           ) : !shouldShowIntro ? (
             <YouTube
               key={`${videoId}-${routeEntryKey}`}
+              className="ct-watch-player"
+              iframeClassName="ct-watch-player-frame"
               videoId={videoId}
               onReady={onReady}
               onStateChange={onStateChange}

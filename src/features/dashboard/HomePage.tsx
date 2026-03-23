@@ -348,6 +348,7 @@ export function MyLearningsPage() {
   const qc = useQueryClient();
   const [attemptsVideoId, setAttemptsVideoId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DashboardVideo | null>(null);
+  const [mobileStatusMenuOpen, setMobileStatusMenuOpen] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState<LearningStatusTab>(() => {
     const stateStatus = (location.state as { initialStatus?: LearningStatusTab } | null)?.initialStatus;
     if (stateStatus === "active" || stateStatus === "completed" || stateStatus === "quiz") {
@@ -361,7 +362,7 @@ export function MyLearningsPage() {
   });
   const [stemFilter, setStemFilter] = useState<StemFilter>("all");
   const [resumeContext, setResumeContext] = useState<PersistedWatchContext | null>(() => readPersistedWatchContext());
-  const hasOpenModal = Boolean(deleteTarget || attemptsVideoId);
+  const hasOpenModal = Boolean(deleteTarget || attemptsVideoId || mobileStatusMenuOpen);
   const showResumeBanner = Boolean(resumeContext && resumeContext.showBanner !== false);
 
   useEffect(() => {
@@ -509,6 +510,7 @@ export function MyLearningsPage() {
       navIcon: <Sparkles size={14} />,
     },
   ];
+  const selectedNavItem = sideNavItems.find((item) => item.key === selectedStatus) || sideNavItems[0];
 
   const openVideo = (v: DashboardVideo) => {
     const action = actionFor(v);
@@ -586,6 +588,17 @@ export function MyLearningsPage() {
   }, [hasOpenModal]);
 
   useEffect(() => {
+    const closeMenuOnDesktop = () => {
+      if (window.innerWidth > 768) {
+        setMobileStatusMenuOpen(false);
+      }
+    };
+    closeMenuOnDesktop();
+    window.addEventListener("resize", closeMenuOnDesktop);
+    return () => window.removeEventListener("resize", closeMenuOnDesktop);
+  }, []);
+
+  useEffect(() => {
     const current = searchParams.get("status");
     if (current === selectedStatus) return;
     const next = new URLSearchParams(searchParams);
@@ -640,7 +653,25 @@ export function MyLearningsPage() {
       {isLoading ? (
         <div className="ct-loading"><div className="ct-spinner" /><span>Loading statuses...</span></div>
       ) : (
-        <div className="ct-learning-layout">
+        <>
+          <div className="ct-learning-mobile-nav">
+            <button
+              type="button"
+              className="ct-btn ct-btn-secondary ct-learning-mobile-nav-btn"
+              onClick={() => setMobileStatusMenuOpen(true)}
+              aria-haspopup="dialog"
+              aria-expanded={mobileStatusMenuOpen}
+              aria-controls="ct-learning-mobile-status-menu"
+            >
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                <Menu size={16} />
+                {selectedNavItem?.label || "Learning Status"}
+              </span>
+              <span className="ct-learning-side-pill">{selectedNavItem?.count ?? 0}</span>
+            </button>
+          </div>
+
+          <div className="ct-learning-layout">
           <aside className="ct-learning-side">
             <div className="ct-learning-side-nav">
               <div className="ct-learning-side-filter">
@@ -766,7 +797,8 @@ export function MyLearningsPage() {
               )}
             </div>
           </div>
-        </div>
+          </div>
+        </>
       )}
 
       {deleteTarget && (
@@ -883,6 +915,81 @@ export function MyLearningsPage() {
                 <button className="ct-btn ct-btn-secondary" onClick={() => setAttemptsVideoId(null)}>
                   Close
                 </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )
+      )}
+
+      {mobileStatusMenuOpen && (
+        createPortal(
+          <div
+            className="ct-learning-mobile-menu-backdrop"
+            onClick={() => setMobileStatusMenuOpen(false)}
+          >
+            <div
+              id="ct-learning-mobile-status-menu"
+              className="ct-learning-mobile-menu"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Learning status menu"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="ct-learning-mobile-menu-head">
+                <h3 className="ct-learning-mobile-menu-title">Learning Status</h3>
+                <button
+                  type="button"
+                  className="ct-learning-mobile-menu-close"
+                  onClick={() => setMobileStatusMenuOpen(false)}
+                  aria-label="Close status menu"
+                >
+                  <X size={15} />
+                </button>
+              </div>
+
+              <div className="ct-learning-mobile-menu-filter">
+                <button
+                  type="button"
+                  className={`ct-learning-mobile-filter-btn ${stemFilter === "all" ? "active" : ""}`}
+                  onClick={() => setStemFilter("all")}
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  className={`ct-learning-mobile-filter-btn ${stemFilter === "stem" ? "active" : ""}`}
+                  onClick={() => setStemFilter("stem")}
+                >
+                  STEM
+                </button>
+                <button
+                  type="button"
+                  className={`ct-learning-mobile-filter-btn ${stemFilter === "nonstem" ? "active" : ""}`}
+                  onClick={() => setStemFilter("nonstem")}
+                >
+                  Non-STEM
+                </button>
+              </div>
+
+              <div className="ct-learning-mobile-menu-list">
+                {sideNavItems.map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    className={`ct-learning-mobile-menu-item ${selectedStatus === item.key ? "active" : ""}`}
+                    onClick={() => {
+                      setSelectedStatus(item.key);
+                      setMobileStatusMenuOpen(false);
+                    }}
+                  >
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                      {item.navIcon}
+                      {item.label}
+                    </span>
+                    <span className="ct-learning-side-pill">{item.count}</span>
+                  </button>
+                ))}
               </div>
             </div>
           </div>,
