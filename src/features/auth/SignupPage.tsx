@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { CheckCircle2, Mail, Send, UserPlus } from "lucide-react";
 import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
@@ -20,7 +20,7 @@ export function SignupPage() {
   const [resendMessage, setResendMessage] = useState<string | null>(null);
   const [resendError, setResendError] = useState<string | null>(null);
 
-  const handleSubmit = async (event: React.FormEvent) => {
+  const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     if (loading) return;
 
@@ -60,11 +60,12 @@ export function SignupPage() {
     } catch (error: unknown) {
       const status = getApiStatus(error);
       const baseMessage = getApiMessage(error, "Signup failed");
-      const message = status === 429
-        ? "Too many requests, try later"
-        : isTimeoutError(error)
-          ? "Signup request timed out. If backend is waking up, wait a few seconds and try again."
-          : baseMessage;
+      let message = baseMessage;
+      if (status === 429) {
+        message = "Too many requests, try later";
+      } else if (isTimeoutError(error)) {
+        message = "Signup request timed out. If backend is waking up, wait a few seconds and try again.";
+      }
       setFormError(message);
       toast.error(message);
     } finally {
@@ -90,17 +91,138 @@ export function SignupPage() {
       toast.success(message);
     } catch (error: unknown) {
       const status = getApiStatus(error);
-      const message = status === 429
-        ? "Too many requests, try later"
-        : isTimeoutError(error)
-          ? "Email resend timed out. Backend may be waking up. Please try again."
-          : getApiMessage(error, "Failed to resend verification email");
+      let message = getApiMessage(error, "Failed to resend verification email");
+      if (status === 429) {
+        message = "Too many requests, try later";
+      } else if (isTimeoutError(error)) {
+        message = "Email resend timed out. Backend may be waking up. Please try again.";
+      }
       setResendError(message);
       toast.error(message);
     } finally {
       setResending(false);
     }
   };
+
+  const verificationEmail = email.trim().toLowerCase();
+  const authContent = signupSuccess ? (
+    <div style={{ display: "grid", gap: 12 }}>
+      <div className="ct-banner ct-banner-success">
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+          <CheckCircle2 size={16} style={{ marginTop: 2 }} />
+          <div>
+            <strong style={{ display: "block", marginBottom: 4 }}>Check your email to verify account</strong>
+            <span>{signupMessage}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="ct-banner ct-banner-info">
+        Verification was sent to <strong>{verificationEmail}</strong>.
+      </div>
+
+      {resendError && (
+        <div className="ct-banner ct-banner-error">
+          {resendError}
+        </div>
+      )}
+      {resendMessage && (
+        <div className="ct-banner ct-banner-success">
+          {resendMessage}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <button
+          type="button"
+          className="ct-btn ct-btn-secondary"
+          onClick={handleResendVerification}
+          disabled={resending}
+          id="signup-resend-verification-btn"
+        >
+          <Send size={15} />
+          {resending ? "Sending..." : "Resend Verification"}
+        </button>
+        <Link to="/login" className="ct-btn ct-btn-primary">
+          <Mail size={15} />
+          Go to Login
+        </Link>
+      </div>
+    </div>
+  ) : (
+    <form onSubmit={handleSubmit}>
+      <div className="ct-form-group">
+        <label className="ct-form-label" htmlFor="signup-name">Full Name</label>
+        <input
+          id="signup-name"
+          className="ct-input"
+          type="text"
+          placeholder="Your Name"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          autoFocus
+          disabled={loading}
+          maxLength={255}
+        />
+      </div>
+
+      <div className="ct-form-group">
+        <label className="ct-form-label" htmlFor="signup-email">Email</label>
+        <input
+          id="signup-email"
+          className="ct-input"
+          type="email"
+          placeholder="you@example.com"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          disabled={loading}
+        />
+      </div>
+
+      <div className="ct-form-group">
+        <label className="ct-form-label" htmlFor="signup-password">Password</label>
+        <input
+          id="signup-password"
+          className="ct-input"
+          type="password"
+          placeholder="Minimum 8 characters"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          disabled={loading}
+        />
+      </div>
+
+      <div className="ct-form-group">
+        <label className="ct-form-label" htmlFor="signup-confirm-password">Confirm Password</label>
+        <input
+          id="signup-confirm-password"
+          className="ct-input"
+          type="password"
+          placeholder="Re-enter your password"
+          value={confirmPassword}
+          onChange={(event) => setConfirmPassword(event.target.value)}
+          disabled={loading}
+        />
+      </div>
+
+      {formError && (
+        <div className="ct-banner ct-banner-error" style={{ marginBottom: 12 }}>
+          {formError}
+        </div>
+      )}
+
+      <button
+        type="submit"
+        className="ct-btn ct-btn-primary ct-btn-lg"
+        style={{ width: "100%", marginTop: 6 }}
+        disabled={loading}
+        id="signup-submit"
+      >
+        <UserPlus size={18} />
+        {loading ? "Creating account..." : "Create Account"}
+      </button>
+    </form>
+  );
 
   return (
     <div className="ct-auth-bg">
@@ -115,124 +237,7 @@ export function SignupPage() {
             </p>
           </div>
 
-          {!signupSuccess ? (
-            <form onSubmit={handleSubmit}>
-              <div className="ct-form-group">
-                <label className="ct-form-label" htmlFor="signup-name">Full Name</label>
-                <input
-                  id="signup-name"
-                  className="ct-input"
-                  type="text"
-                  placeholder="Your Name"
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  autoFocus
-                  disabled={loading}
-                  maxLength={255}
-                />
-              </div>
-
-              <div className="ct-form-group">
-                <label className="ct-form-label" htmlFor="signup-email">Email</label>
-                <input
-                  id="signup-email"
-                  className="ct-input"
-                  type="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  disabled={loading}
-                />
-              </div>
-
-              <div className="ct-form-group">
-                <label className="ct-form-label" htmlFor="signup-password">Password</label>
-                <input
-                  id="signup-password"
-                  className="ct-input"
-                  type="password"
-                  placeholder="Minimum 8 characters"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  disabled={loading}
-                />
-              </div>
-
-              <div className="ct-form-group">
-                <label className="ct-form-label" htmlFor="signup-confirm-password">Confirm Password</label>
-                <input
-                  id="signup-confirm-password"
-                  className="ct-input"
-                  type="password"
-                  placeholder="Re-enter your password"
-                  value={confirmPassword}
-                  onChange={(event) => setConfirmPassword(event.target.value)}
-                  disabled={loading}
-                />
-              </div>
-
-              {formError && (
-                <div className="ct-banner ct-banner-error" style={{ marginBottom: 12 }}>
-                  {formError}
-                </div>
-              )}
-
-              <button
-                type="submit"
-                className="ct-btn ct-btn-primary ct-btn-lg"
-                style={{ width: "100%", marginTop: 6 }}
-                disabled={loading}
-                id="signup-submit"
-              >
-                <UserPlus size={18} />
-                {loading ? "Creating account..." : "Create Account"}
-              </button>
-            </form>
-          ) : (
-            <div style={{ display: "grid", gap: 12 }}>
-              <div className="ct-banner ct-banner-success">
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-                  <CheckCircle2 size={16} style={{ marginTop: 2 }} />
-                  <div>
-                    <strong style={{ display: "block", marginBottom: 4 }}>Check your email to verify account</strong>
-                    <span>{signupMessage}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="ct-banner ct-banner-info">
-                Verification was sent to <strong>{email.trim().toLowerCase()}</strong>.
-              </div>
-
-              {resendError && (
-                <div className="ct-banner ct-banner-error">
-                  {resendError}
-                </div>
-              )}
-              {resendMessage && (
-                <div className="ct-banner ct-banner-success">
-                  {resendMessage}
-                </div>
-              )}
-
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  className="ct-btn ct-btn-secondary"
-                  onClick={handleResendVerification}
-                  disabled={resending}
-                  id="signup-resend-verification-btn"
-                >
-                  <Send size={15} />
-                  {resending ? "Sending..." : "Resend Verification"}
-                </button>
-                <Link to="/login" className="ct-btn ct-btn-primary">
-                  <Mail size={15} />
-                  Go to Login
-                </Link>
-              </div>
-            </div>
-          )}
+          {authContent}
 
           <p style={{ textAlign: "center", marginTop: 22, fontSize: 14, color: "var(--ct-text-secondary)" }}>
             Already have an account?{" "}
