@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useState } from "react";
 import { CheckCircle2, Mail, Send, UserPlus } from "lucide-react";
 import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
@@ -20,8 +20,7 @@ export function SignupPage() {
   const [resendMessage, setResendMessage] = useState<string | null>(null);
   const [resendError, setResendError] = useState<string | null>(null);
 
-  const handleSubmit = async (event: FormEvent) => {
-    event.preventDefault();
+  const handleSubmit = async () => {
     if (loading) return;
 
     const trimmedName = name.trim();
@@ -150,7 +149,12 @@ export function SignupPage() {
       </div>
     </div>
   ) : (
-    <form onSubmit={handleSubmit}>
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        void handleSubmit();
+      }}
+    >
       <div className="ct-form-group">
         <label className="ct-form-label" htmlFor="signup-name">Full Name</label>
         <input
