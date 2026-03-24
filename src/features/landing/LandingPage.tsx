@@ -68,17 +68,16 @@ export function LandingPage() {
     <div className="ct-landing ct-slide-up">
       <section className="ct-landing-hero">
         <span className="ct-landing-kicker">
-          Learn. Prove. Succeed.
+          Learn. Validate. Get Certified.
         </span>
+      
+      <h1 className="ct-landing-title">Turn YouTube Learning<span>Into Verified Skills.</span>
+      </h1>
 
-        <h1 className="ct-landing-title">
-          Turn Knowledge Into
-          <span> Credentials.</span>
-        </h1>
-
-        <p className="ct-landing-subtitle">
-          CertifyTube analyzes your viewing engagement and validates your understanding, issuing definitive certificates for self-taught expertise.
-        </p>
+      <p className="ct-landing-subtitle">
+        Transform the time you spend learning on YouTube into real, verifiable credentials through
+        <span className="ct-landing-subtitle-line">AI-powered engagement tracking and knowledge-based assessment.</span>
+      </p>
 
         <div className="ct-landing-actions">
           <button className="ct-btn ct-btn-primary ct-btn-lg" onClick={handlePrimary}>
