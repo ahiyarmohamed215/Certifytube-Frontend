@@ -6,6 +6,7 @@ interface Options {
   enabled: boolean;
   flushIntervalMs?: number;
   maxBatchSize?: number;
+  prioritySessionId?: string | null;
 }
 
 const EVENT_QUEUE_STORAGE_KEY_PREFIX = "ct_watch_event_queue_v2";
@@ -65,7 +66,46 @@ function persistQueue(storageKey: string, queue: EventPayload[]) {
   }
 }
 
-export function useEventBatcher({ enabled, flushIntervalMs = 5000, maxBatchSize = 30 }: Options) {
+function getPendingCountForSession(queue: EventPayload[], sessionId?: string | null) {
+  if (!sessionId) return queue.length;
+  let count = 0;
+  for (const evt of queue) {
+    if (evt.sessionId === sessionId) count += 1;
+  }
+  return count;
+}
+
+function pickBatch(queue: EventPayload[], maxBatchSize: number, sessionId?: string | null) {
+  if (!sessionId) {
+    if (queue.length === 0) return null;
+    const batch = queue.slice(0, maxBatchSize);
+    return {
+      batch,
+      indexes: batch.map((_, index) => index),
+    };
+  }
+
+  const batch: EventPayload[] = [];
+  const indexes: number[] = [];
+  for (let index = 0; index < queue.length; index += 1) {
+    const evt = queue[index];
+    if (evt.sessionId !== sessionId) continue;
+    batch.push(evt);
+    indexes.push(index);
+    if (batch.length >= maxBatchSize) break;
+  }
+
+  if (batch.length === 0) return null;
+  return { batch, indexes };
+}
+
+function removeBatch(queue: EventPayload[], indexes: number[]) {
+  for (let i = indexes.length - 1; i >= 0; i -= 1) {
+    queue.splice(indexes[i], 1);
+  }
+}
+
+export function useEventBatcher({ enabled, flushIntervalMs = 5000, maxBatchSize = 30, prioritySessionId = null }: Options) {
   const queueRef = useRef<EventPayload[]>([]);
   const storageKeyRef = useRef("");
   const hydratedRef = useRef(false);
@@ -73,6 +113,7 @@ export function useEventBatcher({ enabled, flushIntervalMs = 5000, maxBatchSize 
   const flushPromiseRef = useRef<Promise<boolean> | null>(null);
   const shouldFlushAgainRef = useRef(false);
   const timerRef = useRef<number | null>(null);
+  const activeFlushScopeRef = useRef<string | null>(null);
 
   if (!storageKeyRef.current) {
     storageKeyRef.current = resolveQueueStorageKey();
@@ -83,51 +124,72 @@ export function useEventBatcher({ enabled, flushIntervalMs = 5000, maxBatchSize 
     hydratedRef.current = true;
   }
 
-  const flush = useCallback(async (): Promise<boolean> => {
-    if (queueRef.current.length === 0 && !flushingRef.current) return true;
+  const getPendingCount = useCallback((sessionId?: string | null) => {
+    return getPendingCountForSession(queueRef.current, sessionId);
+  }, []);
+
+  const flushInternal = useCallback(async (sessionId?: string | null): Promise<boolean> => {
+    const scope = sessionId || null;
+    if (getPendingCount(scope) === 0 && !flushingRef.current) return true;
 
     if (flushPromiseRef.current) {
       shouldFlushAgainRef.current = true;
-      return flushPromiseRef.current;
+      if (activeFlushScopeRef.current === scope) {
+        return flushPromiseRef.current;
+      }
+      return flushPromiseRef.current.then(() => flushInternal(scope));
     }
 
     const run = (async (): Promise<boolean> => {
-      let drainedAll = true;
       flushingRef.current = true;
+      activeFlushScopeRef.current = scope;
       try {
         do {
           shouldFlushAgainRef.current = false;
 
-          while (queueRef.current.length > 0) {
-            const batch = queueRef.current.slice(0, maxBatchSize);
+          while (getPendingCount(scope) > 0) {
+            const next = pickBatch(queueRef.current, maxBatchSize, scope);
+            if (!next) break;
             try {
-              const res = await sendEventBatch(batch);
-              if ((res.rejected || 0) > 0 || (res.saved || 0) < batch.length) {
-                drainedAll = false;
+              const res = await sendEventBatch(next.batch);
+              if ((res.rejected || 0) > 0 || (res.saved || 0) < next.batch.length) {
                 return false;
               }
-              queueRef.current.splice(0, batch.length);
+              removeBatch(queueRef.current, next.indexes);
               persistQueue(storageKeyRef.current, queueRef.current);
             } catch {
-              drainedAll = false;
               return false;
             }
           }
-        } while (shouldFlushAgainRef.current && queueRef.current.length > 0);
+        } while (shouldFlushAgainRef.current && getPendingCount(scope) > 0);
 
-        return true;
+        return getPendingCount(scope) === 0;
       } finally {
         flushingRef.current = false;
         flushPromiseRef.current = null;
-        if (drainedAll && queueRef.current.length > 0) {
-          void flush();
-        }
+        activeFlushScopeRef.current = null;
       }
     })();
 
     flushPromiseRef.current = run;
     return run;
-  }, [maxBatchSize]);
+  }, [getPendingCount, maxBatchSize]);
+
+  const flush = useCallback(async (): Promise<boolean> => {
+    return flushInternal();
+  }, [flushInternal]);
+
+  const flushSession = useCallback(async (sessionId: string): Promise<boolean> => {
+    if (!sessionId.trim()) return true;
+    return flushInternal(sessionId);
+  }, [flushInternal]);
+
+  const flushPriority = useCallback(async (): Promise<boolean> => {
+    if (prioritySessionId && getPendingCount(prioritySessionId) > 0) {
+      return flushSession(prioritySessionId);
+    }
+    return flush();
+  }, [flush, flushSession, getPendingCount, prioritySessionId]);
 
   const enqueue = useCallback(
     (evt: EventPayload) => {
@@ -135,16 +197,16 @@ export function useEventBatcher({ enabled, flushIntervalMs = 5000, maxBatchSize 
       queueRef.current.push(evt);
       persistQueue(storageKeyRef.current, queueRef.current);
       if (queueRef.current.length >= maxBatchSize || flushingRef.current) {
-        void flush();
+        void flushPriority();
       }
     },
-    [enabled, maxBatchSize, flush]
+    [enabled, maxBatchSize, flushPriority]
   );
 
   const startTimer = useCallback(() => {
     if (timerRef.current) return;
-    timerRef.current = window.setInterval(() => void flush(), flushIntervalMs);
-  }, [flush, flushIntervalMs]);
+    timerRef.current = window.setInterval(() => void flushPriority(), flushIntervalMs);
+  }, [flushIntervalMs, flushPriority]);
 
   const stopTimer = useCallback(() => {
     if (timerRef.current) {
@@ -155,21 +217,19 @@ export function useEventBatcher({ enabled, flushIntervalMs = 5000, maxBatchSize 
 
   useEffect(() => {
     if (!enabled || queueRef.current.length === 0) return;
-    void flush();
-  }, [enabled, flush]);
+    void flushPriority();
+  }, [enabled, flushPriority]);
 
   useEffect(() => {
     const handleOnline = () => {
       if (queueRef.current.length === 0) return;
-      void flush();
+      void flushPriority();
     };
     window.addEventListener("online", handleOnline);
     return () => {
       window.removeEventListener("online", handleOnline);
     };
-  }, [flush]);
+  }, [flushPriority]);
 
-  const getPendingCount = useCallback(() => queueRef.current.length, []);
-
-  return { enqueue, flush, startTimer, stopTimer, getPendingCount };
+  return { enqueue, flush, flushSession, startTimer, stopTimer, getPendingCount };
 }

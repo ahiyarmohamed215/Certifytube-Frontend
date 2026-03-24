@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
-import { Play, BarChart3, ClipboardCheck, Award, BookOpen, Clock, RotateCcw, Sparkles, Trash2, AlertTriangle, Menu, X } from "lucide-react";
+import { Play, BarChart3, ClipboardCheck, Award, BookOpen, Clock, RotateCcw, Sparkles, Trash2, AlertTriangle, Menu, X, ChevronDown } from "lucide-react";
 import toast from "react-hot-toast";
 import { createPortal } from "react-dom";
 
@@ -348,7 +348,6 @@ export function MyLearningsPage() {
   const qc = useQueryClient();
   const [attemptsVideoId, setAttemptsVideoId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DashboardVideo | null>(null);
-  const [mobileStatusMenuOpen, setMobileStatusMenuOpen] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState<LearningStatusTab>(() => {
     const stateStatus = (location.state as { initialStatus?: LearningStatusTab } | null)?.initialStatus;
     if (stateStatus === "active" || stateStatus === "completed" || stateStatus === "quiz") {
@@ -362,7 +361,7 @@ export function MyLearningsPage() {
   });
   const [stemFilter, setStemFilter] = useState<StemFilter>("all");
   const [resumeContext, setResumeContext] = useState<PersistedWatchContext | null>(() => readPersistedWatchContext());
-  const hasOpenModal = Boolean(deleteTarget || attemptsVideoId || mobileStatusMenuOpen);
+  const hasOpenModal = Boolean(deleteTarget || attemptsVideoId);
   const showResumeBanner = Boolean(resumeContext && resumeContext.showBanner !== false);
 
   useEffect(() => {
@@ -588,17 +587,6 @@ export function MyLearningsPage() {
   }, [hasOpenModal]);
 
   useEffect(() => {
-    const closeMenuOnDesktop = () => {
-      if (window.innerWidth > 768) {
-        setMobileStatusMenuOpen(false);
-      }
-    };
-    closeMenuOnDesktop();
-    window.addEventListener("resize", closeMenuOnDesktop);
-    return () => window.removeEventListener("resize", closeMenuOnDesktop);
-  }, []);
-
-  useEffect(() => {
     const current = searchParams.get("status");
     if (current === selectedStatus) return;
     const next = new URLSearchParams(searchParams);
@@ -655,19 +643,52 @@ export function MyLearningsPage() {
       ) : (
         <>
           <div className="ct-learning-mobile-nav">
+            <div className="ct-learning-mobile-status-field">
+              <label htmlFor="ct-learning-mobile-status" className="ct-learning-mobile-field-label">
+                Status
+              </label>
+              <div className="ct-learning-mobile-status-select-wrap">
+                <select
+                  id="ct-learning-mobile-status"
+                  className="ct-learning-mobile-status-select"
+                  value={selectedStatus}
+                  onChange={(e) => setSelectedStatus(e.target.value as LearningStatusTab)}
+                >
+                  {sideNavItems.map((item) => (
+                    <option key={item.key} value={item.key}>
+                      {item.label} ({item.count})
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown size={16} className="ct-learning-mobile-status-chevron" />
+              </div>
+            </div>
+            <span className="ct-learning-side-pill ct-learning-mobile-status-pill">
+              {selectedNavItem?.count ?? 0}
+            </span>
+          </div>
+
+          <div className="ct-learning-mobile-filter-row">
             <button
               type="button"
-              className="ct-btn ct-btn-secondary ct-learning-mobile-nav-btn"
-              onClick={() => setMobileStatusMenuOpen(true)}
-              aria-haspopup="dialog"
-              aria-expanded={mobileStatusMenuOpen}
-              aria-controls="ct-learning-mobile-status-menu"
+              className={`ct-learning-mobile-filter-btn ${stemFilter === "all" ? "active" : ""}`}
+              onClick={() => setStemFilter("all")}
             >
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                <Menu size={16} />
-                {selectedNavItem?.label || "Learning Status"}
-              </span>
-              <span className="ct-learning-side-pill">{selectedNavItem?.count ?? 0}</span>
+              All
+            </button>
+            <button
+              type="button"
+              className={`ct-learning-mobile-filter-btn ${stemFilter === "stem" ? "active" : ""}`}
+              onClick={() => toggleStemFilter("stem")}
+            >
+              STEM
+            </button>
+            <button
+              type="button"
+              className={`ct-learning-mobile-filter-btn ${stemFilter === "nonstem" ? "active" : ""}`}
+              onClick={() => toggleStemFilter("nonstem")}
+            >
+              Non-STEM
             </button>
           </div>
 
@@ -922,80 +943,6 @@ export function MyLearningsPage() {
         )
       )}
 
-      {mobileStatusMenuOpen && (
-        createPortal(
-          <div
-            className="ct-learning-mobile-menu-backdrop"
-            onClick={() => setMobileStatusMenuOpen(false)}
-          >
-            <div
-              id="ct-learning-mobile-status-menu"
-              className="ct-learning-mobile-menu"
-              role="dialog"
-              aria-modal="true"
-              aria-label="Learning status menu"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="ct-learning-mobile-menu-head">
-                <h3 className="ct-learning-mobile-menu-title">Learning Status</h3>
-                <button
-                  type="button"
-                  className="ct-learning-mobile-menu-close"
-                  onClick={() => setMobileStatusMenuOpen(false)}
-                  aria-label="Close status menu"
-                >
-                  <X size={15} />
-                </button>
-              </div>
-
-              <div className="ct-learning-mobile-menu-filter">
-                <button
-                  type="button"
-                  className={`ct-learning-mobile-filter-btn ${stemFilter === "all" ? "active" : ""}`}
-                  onClick={() => setStemFilter("all")}
-                >
-                  All
-                </button>
-                <button
-                  type="button"
-                  className={`ct-learning-mobile-filter-btn ${stemFilter === "stem" ? "active" : ""}`}
-                  onClick={() => setStemFilter("stem")}
-                >
-                  STEM
-                </button>
-                <button
-                  type="button"
-                  className={`ct-learning-mobile-filter-btn ${stemFilter === "nonstem" ? "active" : ""}`}
-                  onClick={() => setStemFilter("nonstem")}
-                >
-                  Non-STEM
-                </button>
-              </div>
-
-              <div className="ct-learning-mobile-menu-list">
-                {sideNavItems.map((item) => (
-                  <button
-                    key={item.key}
-                    type="button"
-                    className={`ct-learning-mobile-menu-item ${selectedStatus === item.key ? "active" : ""}`}
-                    onClick={() => {
-                      setSelectedStatus(item.key);
-                      setMobileStatusMenuOpen(false);
-                    }}
-                  >
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                      {item.navIcon}
-                      {item.label}
-                    </span>
-                    <span className="ct-learning-side-pill">{item.count}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>,
-          document.body,
-        )
-      )}
     </div>
   );
 }

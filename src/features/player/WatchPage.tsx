@@ -196,10 +196,19 @@ export function WatchPage() {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   };
 
-  const { enqueue, flush, startTimer, stopTimer, getPendingCount } = useEventBatcher({
+  const { enqueue, flush, flushSession, startTimer, stopTimer, getPendingCount } = useEventBatcher({
     enabled: canLog,
     flushIntervalMs: 5000,
+    prioritySessionId: sessionId,
   });
+
+  const flushCurrentSession = useCallback(() => {
+    const activeSessionId = sessionIdRef.current;
+    if (activeSessionId) {
+      return flushSession(activeSessionId);
+    }
+    return flush();
+  }, [flush, flushSession]);
 
   useEffect(() => {
     sessionIdRef.current = sessionId;
@@ -470,12 +479,12 @@ export function WatchPage() {
 
     try {
       for (let i = 0; i < 3; i += 1) {
-        await flush();
-        if (getPendingCount() === 0) break;
+        await flushSession(sid);
+        if (getPendingCount(sid) === 0) break;
         await new Promise((resolve) => window.setTimeout(resolve, 120));
       }
 
-      if (getPendingCount() > 0) {
+      if (getPendingCount(sid) > 0) {
         if (mountedRef.current) {
           toast.error("Could not sync watch events. Check network and try again.");
         }
@@ -500,7 +509,7 @@ export function WatchPage() {
         setEndingSession(false);
       }
     }
-  }, [flush, getPendingCount, stopTimer]);
+  }, [flushSession, getPendingCount, stopTimer]);
 
   useEffect(() => {
     const hasMatchMedia = typeof window.matchMedia === "function";
@@ -527,7 +536,7 @@ export function WatchPage() {
           pauseIfPlaying();
         }
         stopTimer();
-        void flush();
+        void flushCurrentSession();
       }
     };
 
@@ -536,7 +545,7 @@ export function WatchPage() {
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [flush, stopTimer]);
+  }, [flushCurrentSession, stopTimer]);
 
   useEffect(() => {
     if (sessionEnded) {
@@ -565,7 +574,7 @@ export function WatchPage() {
         clearPersistedWatchContext();
       }
       stopTimer();
-      void flush();
+      void flushCurrentSession();
     };
 
     window.addEventListener("pagehide", handlePageHide);
@@ -589,9 +598,9 @@ export function WatchPage() {
         clearPersistedWatchContext();
       }
       stopTimer();
-      void flush();
+      void flushCurrentSession();
     };
-  }, [enqueue, flush, stopTimer, savePersistedWatchContext, clearPersistedWatchContext]);
+  }, [enqueue, flushCurrentSession, stopTimer, savePersistedWatchContext, clearPersistedWatchContext]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const onReady = (e: any) => {
@@ -761,6 +770,7 @@ export function WatchPage() {
     }
     try {
       if (canLogRef.current) {
+        const activeSessionId = sessionIdRef.current;
         try {
           const state = Number(playerRef.current?.getPlayerState?.() ?? -1);
           const checkpointType = state === 1 ? "play" : state === 3 ? "buffering" : "pause";
@@ -770,8 +780,13 @@ export function WatchPage() {
         }
         stopTimer();
         for (let i = 0; i < 3; i += 1) {
-          await flush();
-          if (getPendingCount() === 0) break;
+          if (activeSessionId) {
+            await flushSession(activeSessionId);
+            if (getPendingCount(activeSessionId) === 0) break;
+          } else {
+            await flush();
+            if (getPendingCount() === 0) break;
+          }
           await new Promise((resolve) => window.setTimeout(resolve, 120));
         }
       }

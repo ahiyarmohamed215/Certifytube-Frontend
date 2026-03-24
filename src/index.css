@@ -6937,7 +6937,7 @@ div[class*="go"] {
 }
 
 .ct-learning-mobile-nav,
-.ct-learning-mobile-menu-backdrop {
+.ct-learning-mobile-filter-row {
   display: none;
 }
 
@@ -6953,120 +6953,101 @@ div[class*="go"] {
 
   .ct-learning-mobile-nav {
     display: flex;
-    margin-bottom: 12px;
+    align-items: flex-end;
+    gap: 10px;
+    margin-bottom: 10px;
   }
 
-  .ct-learning-mobile-nav-btn {
+  .ct-learning-mobile-status-field {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .ct-learning-mobile-field-label {
+    display: inline-block;
+    margin: 0 0 6px 4px;
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+    color: rgba(159, 25, 35, 0.72);
+  }
+
+  .ct-learning-mobile-status-select-wrap {
+    position: relative;
+  }
+
+  .ct-learning-mobile-status-select {
+    appearance: none;
+    -webkit-appearance: none;
     width: 100%;
-    justify-content: space-between;
-    gap: 8px;
+    min-height: 46px;
+    padding: 11px 40px 11px 14px;
+    border-radius: 16px;
+    border: 1px solid rgba(230, 57, 70, 0.12);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(255, 247, 247, 0.93)),
+      radial-gradient(circle at top right, rgba(230, 57, 70, 0.12), rgba(230, 57, 70, 0));
+    box-shadow: 0 12px 24px rgba(230, 57, 70, 0.06), 0 4px 10px rgba(15, 23, 42, 0.04);
+    color: var(--ct-text);
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 700;
+    outline: none;
+  }
+
+  .ct-learning-mobile-status-select:focus {
+    border-color: rgba(230, 57, 70, 0.26);
+    box-shadow: 0 0 0 3px rgba(230, 57, 70, 0.08);
+  }
+
+  .ct-learning-mobile-status-chevron {
+    position: absolute;
+    top: 50%;
+    right: 14px;
+    transform: translateY(-50%);
+    color: var(--ct-primary);
+    pointer-events: none;
+  }
+
+  .ct-learning-mobile-status-pill {
+    min-width: 38px;
+    min-height: 46px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding-inline: 10px;
   }
 
   .ct-learning-layout .ct-learning-side {
     display: none;
   }
 
-  .ct-learning-mobile-menu-backdrop {
-    display: block;
-    position: fixed;
-    inset: 0;
-    background: rgba(8, 11, 20, 0.48);
-    z-index: 1300;
-    padding: 14px;
-  }
-
-  .ct-learning-mobile-menu {
-    width: min(420px, 100%);
-    max-height: min(82vh, 640px);
-    overflow-y: auto;
-    margin-left: auto;
-    border-radius: var(--ct-radius-lg);
-    border: 1px solid var(--ct-border);
-    background: var(--ct-bg-card);
-    box-shadow: var(--ct-shadow-lg);
-    padding: 14px;
-  }
-
-  .ct-learning-mobile-menu-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    margin-bottom: 10px;
-  }
-
-  .ct-learning-mobile-menu-title {
-    margin: 0;
-    font-size: 15px;
-    font-weight: 800;
-    color: var(--ct-text);
-  }
-
-  .ct-learning-mobile-menu-close {
-    width: 30px;
-    height: 30px;
-    border-radius: 999px;
-    border: 1px solid var(--ct-border);
-    background: rgba(0, 0, 0, 0.04);
-    color: var(--ct-text-secondary);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-  }
-
-  .ct-learning-mobile-menu-filter {
-    display: flex;
-    align-items: center;
+  .ct-learning-mobile-filter-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
-    flex-wrap: wrap;
-    margin-bottom: 10px;
+    margin-bottom: 14px;
   }
 
   .ct-learning-mobile-filter-btn {
-    border: 1px solid var(--ct-border);
-    background: var(--ct-bg-card);
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    background: rgba(255, 255, 255, 0.8);
     color: var(--ct-text-secondary);
-    border-radius: var(--ct-radius-full);
-    padding: 7px 12px;
+    border-radius: 14px;
+    padding: 9px 10px;
     font-size: 12px;
     font-weight: 700;
     font-family: inherit;
     cursor: pointer;
     transition: all var(--ct-transition);
+    text-align: center;
   }
 
   .ct-learning-mobile-filter-btn.active {
-    background: var(--ct-primary-50);
+    background: linear-gradient(180deg, var(--ct-primary-50), rgba(255, 239, 239, 0.95));
     border-color: rgba(230, 57, 70, 0.24);
-    color: var(--ct-primary);
-  }
-
-  .ct-learning-mobile-menu-list {
-    display: grid;
-    gap: 8px;
-  }
-
-  .ct-learning-mobile-menu-item {
-    width: 100%;
-    border: 1px solid transparent;
-    border-radius: 12px;
-    padding: 11px 12px;
-    background: rgba(0, 0, 0, 0.03);
-    color: var(--ct-text-secondary);
-    font-size: 14px;
-    font-family: inherit;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    transition: all var(--ct-transition);
-  }
-
-  .ct-learning-mobile-menu-item.active {
-    background: var(--ct-primary-50);
-    border-color: rgba(230, 57, 70, 0.24);
-    color: var(--ct-primary);
-    font-weight: 700;
+    color: var(--ct-primary-dark);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
   }
 }
