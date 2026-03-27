@@ -6178,6 +6178,46 @@ div[class*="go"] {
   .ct-watch-frame-popup {
     padding: 16px;
   }
+
+  .ct-watch-player-wrap-intro {
+    overflow: visible;
+  }
+
+  .ct-watch-player-wrap-intro .ct-watch-player-placeholder {
+    aspect-ratio: auto;
+    min-height: min(72vh, 360px);
+  }
+
+  .ct-watch-player-wrap-intro .ct-watch-frame-overlay {
+    align-items: stretch;
+    padding: 12px;
+    overflow-y: auto;
+  }
+
+  .ct-watch-player-wrap-intro .ct-watch-frame-popup {
+    max-width: none;
+    margin: auto 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .ct-watch-player-wrap-intro .ct-watch-player-placeholder {
+    min-height: min(74vh, 400px);
+  }
+
+  .ct-watch-player-wrap-intro .ct-watch-frame-popup {
+    padding: 14px;
+    border-radius: calc(var(--ct-radius-lg) - 2px);
+  }
+
+  .ct-watch-player-wrap-intro .ct-watch-intro-title {
+    font-size: 20px;
+  }
+
+  .ct-watch-player-wrap-intro .ct-watch-intro-text {
+    font-size: 13px;
+    line-height: 1.5;
+  }
 }
 
 /* Analyze Page Enhancements */

@@ -91,8 +91,8 @@ export interface EndSessionResponse {
 // ---- Events ----
 export interface EventPayload {
   sessionId: string;
-  eventType: 'play' | 'pause' | 'seek' | 'buffering' | 'ratechange' | 'ended' | string;
-  playerState: number; // 1=playing, 2=paused, 3=buffering, 0=ended
+  eventType: 'ready' | 'play' | 'pause' | 'seek' | 'buffering' | 'ratechange' | 'ended' | 'unstarted' | string;
+  playerState: number; // -1=unstarted, 0=ended, 1=playing, 2=paused, 3=buffering, 4=seek, 5=ready
   playbackRate: number;
   currentTimeSec: number;
   videoDurationSec?: number;

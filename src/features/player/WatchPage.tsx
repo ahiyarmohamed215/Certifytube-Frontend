@@ -9,6 +9,15 @@ import { startSession, endSession } from "../../api/sessions";
 import { getDashboard } from "../../api/dashboard";
 import { useEventBatcher } from "./hooks/useEventBatcher";
 import type { DashboardResponse, DashboardVideo, EventPayload, SessionStatus, StartSessionResponse } from "../../types/api";
+import {
+  PLAYER_EVENT_STATE,
+  getCheckpointEventType,
+  getPlayerStateForEvent,
+  getStateChangeEventType,
+  normalizeObservedPlayerState,
+  shouldEmitSeekEvent,
+  toLocalIsoWithoutTz,
+} from "./playerEvents";
 
 type LearningStatusTab = "active" | "completed" | "quiz";
 
@@ -32,8 +41,18 @@ type PersistedWatchContext = {
   showBanner?: boolean;
 };
 
+type CheckpointSnapshot = {
+  sessionId: string;
+  eventType: string;
+  playerState: number;
+  currentTimeSec: number;
+  atMs: number;
+};
+
 const WATCH_RESUME_KEY = "ct_watch_resume_context";
 const WATCH_CONTEXT_EVENT = "ct-watch-context-change";
+const NEAR_END_RECOVERY_WINDOW_SEC = 1.25;
+const NEAR_END_RECOVERY_COOLDOWN_MS = 1200;
 
 function normalizeLearningStatus(value: unknown): LearningStatusTab | null {
   if (value === "active" || value === "completed" || value === "quiz") return value;
@@ -150,32 +169,34 @@ export function WatchPage() {
   const [title, setTitle] = useState(locState.videoTitle || queryTitle || "");
   const [stemEligible, setStemEligible] = useState<boolean | null>(null);
   const [stemMessage, setStemMessage] = useState<string | null>(null);
-  const [resumed, setResumed] = useState(false);
   const [lastPos, setLastPos] = useState<number | null>(null);
   const [sessionEnded, setSessionEnded] = useState(false);
   const [endingSession, setEndingSession] = useState(false);
   const [closingPlayer, setClosingPlayer] = useState(false);
   const [showWatchIntro, setShowWatchIntro] = useState(true);
 
-  const [playerState, setPlayerState] = useState(-1);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const playerRef = useRef<any>(null);
+  const playerStateRef = useRef<number>(PLAYER_EVENT_STATE.unstarted);
   const sessionIdRef = useRef<string | null>(null);
   const sessionEndedRef = useRef(false);
   const endingSessionRef = useRef(false);
   const mountedRef = useRef(true);
   const lastObservedTimeRef = useRef<number | null>(null);
+  const lastObservedAtMsRef = useRef<number | null>(null);
   const lastSeekSentAtRef = useRef(0);
   const suppressSeekUntilMsRef = useRef(0);
   const resumeSeekKeyRef = useRef<string | null>(null);
+  const lastCheckpointRef = useRef<CheckpointSnapshot | null>(null);
+  const lastNearEndRecoveryAtRef = useRef(0);
   const shouldShowPersistedBannerRef = useRef(true);
   const canLog = Boolean(sessionId && !sessionEnded);
   const canLogRef = useRef(false);
   const shouldPersistWatchContextRef = useRef(true);
-  const makeEventRef = useRef<(type: string, extras?: Partial<EventPayload>) => EventPayload>(() => {
+  const makeEventRef = useRef<(type: string, extras?: Partial<EventPayload>, observedPlayerState?: number | null) => EventPayload>(() => {
     throw new Error("watch event builder is not ready");
   });
 
@@ -190,11 +211,6 @@ export function WatchPage() {
       .slice(0, 12),
     [dashboardData, videoId],
   );
-
-  const toLocalIsoWithoutTz = (d: Date) => {
-    const pad = (n: number) => n.toString().padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-  };
 
   const { enqueue, flush, flushSession, startTimer, stopTimer, getPendingCount } = useEventBatcher({
     enabled: canLog,
@@ -228,29 +244,189 @@ export function WatchPage() {
 
   useEffect(() => {
     lastObservedTimeRef.current = null;
+    lastObservedAtMsRef.current = null;
     lastSeekSentAtRef.current = 0;
     suppressSeekUntilMsRef.current = 0;
     resumeSeekKeyRef.current = null;
+    playerStateRef.current = PLAYER_EVENT_STATE.unstarted;
+    lastCheckpointRef.current = null;
+    lastNearEndRecoveryAtRef.current = 0;
   }, [sessionId]);
 
-  const makeEvent = useCallback((type: string, extras?: Partial<EventPayload>): EventPayload => ({
-    sessionId: sessionId!,
-    eventType: type,
-    playerState,
-    playbackRate: playerRef.current?.getPlaybackRate?.() || 1,
-    currentTimeSec: playerRef.current?.getCurrentTime?.() || currentTime,
-    videoDurationSec: (playerRef.current?.getDuration?.() || duration) > 0
-      ? (playerRef.current?.getDuration?.() || duration)
-      : undefined,
-    clientCreatedAtLocal: toLocalIsoWithoutTz(new Date()),
-    clientTzOffsetMin: new Date().getTimezoneOffset(),
-    clientEventMs: performance.now(),
-    ...extras,
-  }), [sessionId, playerState, currentTime, duration]);
+  const readObservedPlayerState = useCallback((observedPlayerState?: number | null) => {
+    if (typeof observedPlayerState === "number" && Number.isFinite(observedPlayerState)) {
+      return observedPlayerState;
+    }
+
+    try {
+      const liveState = Number(playerRef.current?.getPlayerState?.() ?? Number.NaN);
+      if (Number.isFinite(liveState)) {
+        return liveState;
+      }
+    } catch {
+      // noop
+    }
+
+    return playerStateRef.current;
+  }, []);
+
+  const makeEvent = useCallback((type: string, extras?: Partial<EventPayload>, observedPlayerState?: number | null): EventPayload => {
+    const player = playerRef.current;
+    const eventDate = new Date();
+    const clientEventMs = performance.now();
+    const resolvedObservedState = normalizeObservedPlayerState(readObservedPlayerState(observedPlayerState));
+    const fallbackCurrentTime = lastObservedTimeRef.current ?? currentTime;
+
+    let playbackRate = 1;
+    let liveCurrentTime = Number.NaN;
+    let liveDuration = Number.NaN;
+
+    try {
+      const nextPlaybackRate = Number(player?.getPlaybackRate?.() ?? Number.NaN);
+      if (Number.isFinite(nextPlaybackRate) && nextPlaybackRate > 0) {
+        playbackRate = nextPlaybackRate;
+      }
+    } catch {
+      // noop
+    }
+
+    try {
+      liveCurrentTime = Number(player?.getCurrentTime?.() ?? Number.NaN);
+    } catch {
+      // noop
+    }
+
+    try {
+      liveDuration = Number(player?.getDuration?.() ?? Number.NaN);
+    } catch {
+      // noop
+    }
+
+    const resolvedCurrentTime = Number.isFinite(liveCurrentTime) ? liveCurrentTime : fallbackCurrentTime;
+    const resolvedDuration = Number.isFinite(liveDuration) ? liveDuration : duration;
+    const restExtras = { ...(extras || {}) };
+    delete restExtras.sessionId;
+    delete restExtras.eventType;
+    delete restExtras.playerState;
+    delete restExtras.clientCreatedAtLocal;
+    delete restExtras.clientTzOffsetMin;
+    delete restExtras.clientEventMs;
+
+    return {
+      sessionId: sessionId!,
+      eventType: type,
+      playerState: getPlayerStateForEvent(type, resolvedObservedState),
+      playbackRate,
+      currentTimeSec: resolvedCurrentTime,
+      videoDurationSec: resolvedDuration > 0 ? resolvedDuration : undefined,
+      clientCreatedAtLocal: toLocalIsoWithoutTz(eventDate),
+      clientTzOffsetMin: eventDate.getTimezoneOffset(),
+      clientEventMs,
+      ...restExtras,
+    };
+  }, [currentTime, duration, readObservedPlayerState, sessionId]);
 
   useEffect(() => {
     makeEventRef.current = makeEvent;
   }, [makeEvent]);
+
+  const hasResumePosition = lastPos != null && lastPos > 0;
+
+  const attemptResumePlayback = useCallback(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (player?: any) => {
+      if (!player || !hasResumePosition) return;
+
+      const resumeKey = `${videoId || ""}:${routeEntryKey}:${sessionIdRef.current || "none"}`;
+      if (resumeSeekKeyRef.current === resumeKey) return;
+
+      resumeSeekKeyRef.current = resumeKey;
+      const resumeAt = lastPos!;
+      const applyResumePosition = () => {
+        try {
+          player.seekTo(resumeAt, true);
+          player.playVideo?.();
+        } catch {
+          // noop
+        }
+      };
+
+      applyResumePosition();
+      window.setTimeout(applyResumePosition, 250);
+      window.setTimeout(applyResumePosition, 900);
+      suppressSeekUntilMsRef.current = Date.now() + 2200;
+      lastObservedTimeRef.current = resumeAt;
+      lastObservedAtMsRef.current = Date.now();
+    },
+    [hasResumePosition, lastPos, routeEntryKey, videoId],
+  );
+
+  const enqueueCheckpoint = useCallback((observedPlayerState?: number | null) => {
+    if (!canLogRef.current || sessionEndedRef.current) return;
+
+    const checkpointState = normalizeObservedPlayerState(readObservedPlayerState(observedPlayerState));
+    const checkpointType = getCheckpointEventType(checkpointState);
+    if (!checkpointType) return;
+
+    const evt = makeEventRef.current(checkpointType, undefined, checkpointState);
+    const nowMs = Date.now();
+    const previous = lastCheckpointRef.current;
+
+    if (
+      previous
+      && previous.sessionId === evt.sessionId
+      && previous.eventType === evt.eventType
+      && previous.playerState === evt.playerState
+      && Math.abs(previous.currentTimeSec - evt.currentTimeSec) < 1
+      && (nowMs - previous.atMs) < 1500
+    ) {
+      return;
+    }
+
+    lastCheckpointRef.current = {
+      sessionId: evt.sessionId,
+      eventType: evt.eventType,
+      playerState: evt.playerState,
+      currentTimeSec: evt.currentTimeSec,
+      atMs: nowMs,
+    };
+
+    enqueue(evt);
+  }, [enqueue, readObservedPlayerState]);
+
+  useEffect(() => {
+    attemptResumePlayback(playerRef.current);
+  }, [attemptResumePlayback]);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recoverNearEndPause = useCallback((player?: any): boolean => {
+    if (!player || sessionEndedRef.current || endingSessionRef.current) return false;
+    if (document.visibilityState === "hidden") return false;
+
+    let current = Number.NaN;
+    let total = Number.NaN;
+    try {
+      current = Number(player.getCurrentTime?.() ?? Number.NaN);
+      total = Number(player.getDuration?.() ?? Number.NaN);
+    } catch {
+      return false;
+    }
+
+    if (!Number.isFinite(current) || !Number.isFinite(total) || total <= 0) return false;
+    const remaining = total - current;
+    if (remaining <= 0 || remaining > NEAR_END_RECOVERY_WINDOW_SEC) return false;
+
+    const now = Date.now();
+    if ((now - lastNearEndRecoveryAtRef.current) < NEAR_END_RECOVERY_COOLDOWN_MS) return false;
+    lastNearEndRecoveryAtRef.current = now;
+
+    try {
+      player.playVideo?.();
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
 
   const clearPersistedWatchContext = useCallback(() => {
     try {
@@ -327,11 +503,10 @@ export function WatchPage() {
       && locState.lastPositionSec > 0
       ? locState.lastPositionSec
       : null;
-    const existingLastPosition = routeLastPosition ?? persistedLastPosition;
+    const existingLastPosition = persistedLastPosition ?? routeLastPosition;
     shouldPersistWatchContextRef.current = true;
     shouldShowPersistedBannerRef.current = true;
     setSessionId(null);
-    setResumed(false);
     setLastPos(null);
     setSessionEnded(false);
     setStemEligible(null);
@@ -345,7 +520,6 @@ export function WatchPage() {
       setTitle(preferredTitle);
       setStemEligible(existingStemEligible ?? true);
       setStemMessage(existingStemMessage);
-      setResumed(true);
       setLastPos(existingLastPosition);
       setSessionEnded(false);
       setShowWatchIntro(false);
@@ -363,7 +537,6 @@ export function WatchPage() {
             setTitle(preferredTitle);
             setStemEligible(latest.stemEligible);
             setStemMessage(null);
-            setResumed(true);
             setLastPos(latest.lastPositionSec ?? null);
             setSessionEnded(false);
             setShowWatchIntro(false);
@@ -381,14 +554,14 @@ export function WatchPage() {
         });
         if (cancelled) return;
 
+        const shouldResumePlayback = res.resumed || ((res.lastPositionSec ?? 0) > 0);
         setSessionId(res.sessionId);
         setTitle(preferredTitle);
         setStemEligible(res.stemEligible);
         setStemMessage(res.stemMessage);
-        setResumed(res.resumed);
         setLastPos(res.lastPositionSec);
         setSessionEnded(false);
-        setShowWatchIntro(res.stemEligible && !res.resumed);
+        setShowWatchIntro(res.stemEligible && !shouldResumePlayback);
       } catch (e: any) {
         try {
           const latest = pickLatestActiveSessionByVideo(await getDashboard(), videoId);
@@ -397,11 +570,9 @@ export function WatchPage() {
             setTitle(preferredTitle);
             setStemEligible(latest.stemEligible);
             setStemMessage(null);
-            setResumed(true);
             setLastPos(latest.lastPositionSec ?? null);
             setSessionEnded(false);
             setShowWatchIntro(false);
-            toast.success("Resumed your active session");
             return;
           }
         } catch {
@@ -453,19 +624,18 @@ export function WatchPage() {
   useEffect(() => {
     if (!canLog || !playerRef.current) return;
     try {
-      const state = Number(playerRef.current.getPlayerState?.() ?? -1);
-      if (state === 1) {
-        enqueue(makeEvent("play"));
+      const state = normalizeObservedPlayerState(playerRef.current.getPlayerState?.() ?? Number.NaN);
+      const eventType = getStateChangeEventType(state);
+      if (!eventType) return;
+
+      if (eventType === "play") {
         startTimer();
-      } else if (state === 2) {
-        enqueue(makeEvent("pause"));
-      } else if (state === 3) {
-        enqueue(makeEvent("buffering"));
       }
+      enqueue(makeEventRef.current(eventType, undefined, state));
     } catch {
       // noop
     }
-  }, [canLog, enqueue, makeEvent, startTimer]);
+  }, [canLog, enqueue, startTimer]);
 
   const flushAndEndSession = useCallback(async (): Promise<string | null> => {
     const sid = sessionIdRef.current;
@@ -537,6 +707,11 @@ export function WatchPage() {
         }
         stopTimer();
         void flushCurrentSession();
+        return;
+      }
+
+      if (canLogRef.current && !sessionEndedRef.current) {
+        startTimer();
       }
     };
 
@@ -545,7 +720,7 @@ export function WatchPage() {
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [flushCurrentSession, stopTimer]);
+  }, [flushCurrentSession, startTimer, stopTimer]);
 
   useEffect(() => {
     if (sessionEnded) {
@@ -559,15 +734,7 @@ export function WatchPage() {
 
   useEffect(() => {
     const handlePageHide = () => {
-      if (canLogRef.current) {
-        try {
-          const state = Number(playerRef.current?.getPlayerState?.() ?? -1);
-          const checkpointType = state === 1 ? "play" : state === 3 ? "buffering" : "pause";
-          enqueue(makeEventRef.current(checkpointType));
-        } catch {
-          // noop
-        }
-      }
+      enqueueCheckpoint();
       if (shouldPersistWatchContextRef.current) {
         savePersistedWatchContext();
       } else {
@@ -583,15 +750,7 @@ export function WatchPage() {
     return () => {
       window.removeEventListener("pagehide", handlePageHide);
       window.removeEventListener("beforeunload", handlePageHide);
-      if (canLogRef.current) {
-        try {
-          const state = Number(playerRef.current?.getPlayerState?.() ?? -1);
-          const checkpointType = state === 1 ? "play" : state === 3 ? "buffering" : "pause";
-          enqueue(makeEventRef.current(checkpointType));
-        } catch {
-          // noop
-        }
-      }
+      enqueueCheckpoint();
       if (shouldPersistWatchContextRef.current) {
         savePersistedWatchContext();
       } else {
@@ -600,72 +759,72 @@ export function WatchPage() {
       stopTimer();
       void flushCurrentSession();
     };
-  }, [enqueue, flushCurrentSession, stopTimer, savePersistedWatchContext, clearPersistedWatchContext]);
+  }, [enqueueCheckpoint, flushCurrentSession, stopTimer, savePersistedWatchContext, clearPersistedWatchContext]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const onReady = (e: any) => {
     playerRef.current = e.target;
+    playerStateRef.current = PLAYER_EVENT_STATE.ready;
     try {
       setDuration(e.target.getDuration());
       lastObservedTimeRef.current = e.target.getCurrentTime();
+      lastObservedAtMsRef.current = Date.now();
     } catch {
       // noop
     }
 
-    const resumeKey = `${videoId || ""}:${routeEntryKey}:${sessionIdRef.current || "none"}`;
-    if (resumed && lastPos != null && lastPos > 0 && resumeSeekKeyRef.current !== resumeKey) {
-      resumeSeekKeyRef.current = resumeKey;
-      const applyResumePosition = () => {
-        try {
-          e.target.seekTo(lastPos, true);
-          e.target.playVideo?.();
-        } catch {
-          // noop
-        }
-      };
-      applyResumePosition();
-      window.setTimeout(applyResumePosition, 250);
-      window.setTimeout(applyResumePosition, 900);
-      suppressSeekUntilMsRef.current = Date.now() + 2200;
-      lastObservedTimeRef.current = lastPos;
-      toast.success(`Resumed at ${Math.floor(lastPos / 60)}:${Math.floor(lastPos % 60).toString().padStart(2, "0")}`);
+    if (canLogRef.current) {
+      startTimer();
+      enqueue(makeEventRef.current("ready", undefined, PLAYER_EVENT_STATE.ready));
     }
+    attemptResumePlayback(e.target);
   };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const onStateChange = (e: any) => {
-    const state = e.data as number;
-    setPlayerState(state);
+    const state = normalizeObservedPlayerState(e.data);
+    playerStateRef.current = state;
 
     const p = playerRef.current;
     if (p) {
       try {
-        setCurrentTime(p.getCurrentTime());
-        setDuration(p.getDuration());
+        const nextCurrentTime = Number(p.getCurrentTime?.() ?? Number.NaN);
+        const nextDuration = Number(p.getDuration?.() ?? Number.NaN);
+        if (Number.isFinite(nextCurrentTime)) {
+          setCurrentTime(nextCurrentTime);
+          lastObservedTimeRef.current = nextCurrentTime;
+          lastObservedAtMsRef.current = Date.now();
+        }
+        if (Number.isFinite(nextDuration)) {
+          setDuration(nextDuration);
+        }
       } catch {
         // noop
       }
     }
 
-    let eventType = "play";
-    if (state === 1) {
-      eventType = "play";
-      if (canLog) startTimer();
-    } else if (state === 2) {
-      eventType = "pause";
-      stopTimer();
-    } else if (state === 3) {
-      eventType = "buffering";
-    } else if (state === 0) {
-      eventType = "ended";
-      stopTimer();
-      toast("Video finished. Click Complete Session to continue.");
-    } else {
+    const eventType = getStateChangeEventType(state);
+    if (!eventType) {
       return;
     }
 
+    if (eventType === "play") {
+      lastNearEndRecoveryAtRef.current = 0;
+      if (canLog) startTimer();
+    } else if (eventType === "pause") {
+      if (recoverNearEndPause(p)) {
+        return;
+      }
+    } else if (eventType === "ended") {
+      lastNearEndRecoveryAtRef.current = 0;
+      toast("Video finished. Click Complete Session to continue.");
+    }
+
     if (canLog) {
-      enqueue(makeEvent(eventType));
+      enqueue(makeEvent(eventType, undefined, state));
+      if (eventType === "ended") {
+        void flushCurrentSession();
+      }
     }
   };
 
@@ -673,7 +832,7 @@ export function WatchPage() {
   const onPlaybackRateChange = (e: any) => {
     if (!canLog) return;
     const rate = Number(e?.data);
-    enqueue(makeEvent("ratechange", { playbackRate: Number.isFinite(rate) ? rate : 1 }));
+    enqueue(makeEvent("ratechange", { playbackRate: Number.isFinite(rate) && rate > 0 ? rate : 1 }));
   };
 
   useEffect(() => {
@@ -685,55 +844,59 @@ export function WatchPage() {
 
       let current = 0;
       let state = -1;
+      let playbackRate = 1;
       try {
         current = Number(p.getCurrentTime?.() ?? 0);
-        state = Number(p.getPlayerState?.() ?? -1);
+        state = normalizeObservedPlayerState(p.getPlayerState?.() ?? Number.NaN);
+        playbackRate = Number(p.getPlaybackRate?.() ?? 1);
       } catch {
         return;
       }
 
       if (!Number.isFinite(current)) return;
-      if (lastObservedTimeRef.current == null) {
+      if (state === PLAYER_EVENT_STATE.pause && recoverNearEndPause(p)) {
+        return;
+      }
+      const now = Date.now();
+
+      if (lastObservedTimeRef.current == null || lastObservedAtMsRef.current == null) {
         lastObservedTimeRef.current = current;
+        lastObservedAtMsRef.current = now;
         return;
       }
 
-      const isBuffering = state === 3;
-      const now = Date.now();
+      const fromSec = lastObservedTimeRef.current;
+      const elapsedMs = now - lastObservedAtMsRef.current;
 
-      if (!isBuffering && now >= suppressSeekUntilMsRef.current) {
-        const fromSec = lastObservedTimeRef.current;
-        const delta = current - fromSec;
-
-        if (Math.abs(delta) >= 2 && (now - lastSeekSentAtRef.current) > 400) {
-          enqueue(makeEvent("seek", {
-            seekFromSec: fromSec,
-            seekToSec: current,
-          }));
-          lastSeekSentAtRef.current = now;
-        }
+      if (shouldEmitSeekEvent({
+        previousTimeSec: fromSec,
+        nextTimeSec: current,
+        elapsedMs,
+        playbackRate,
+        playerState: state,
+        nowMs: now,
+        lastSeekAtMs: lastSeekSentAtRef.current,
+        suppressUntilMs: suppressSeekUntilMsRef.current,
+      })) {
+        enqueue(makeEventRef.current("seek", {
+          currentTimeSec: current,
+          seekFromSec: fromSec,
+          seekToSec: current,
+        }, state));
+        lastSeekSentAtRef.current = now;
       }
 
-      if (!isBuffering) {
-        lastObservedTimeRef.current = current;
-      }
-    }, 500);
+      lastObservedTimeRef.current = current;
+      lastObservedAtMsRef.current = now;
+    }, 250);
 
     return () => window.clearInterval(t);
-  }, [canLog, enqueue, makeEvent]);
+  }, [canLog, enqueue]);
 
   const handleEndSession = async () => {
     if (!sessionId || sessionEnded) return;
 
-    if (canLog) {
-      try {
-        const state = Number(playerRef.current?.getPlayerState?.() ?? -1);
-        const checkpointType = state === 1 ? "play" : state === 3 ? "buffering" : "pause";
-        enqueue(makeEvent(checkpointType));
-      } catch {
-        // noop
-      }
-    }
+    enqueueCheckpoint();
 
     const endedSid = await flushAndEndSession();
     if (endedSid) {
@@ -767,17 +930,12 @@ export function WatchPage() {
     }
     if (Number.isFinite(snapshotSec) && snapshotSec > 0) {
       lastObservedTimeRef.current = snapshotSec;
+      lastObservedAtMsRef.current = Date.now();
     }
     try {
       if (canLogRef.current) {
         const activeSessionId = sessionIdRef.current;
-        try {
-          const state = Number(playerRef.current?.getPlayerState?.() ?? -1);
-          const checkpointType = state === 1 ? "play" : state === 3 ? "buffering" : "pause";
-          enqueue(makeEventRef.current(checkpointType));
-        } catch {
-          // noop
-        }
+        enqueueCheckpoint();
         stopTimer();
         for (let i = 0; i < 3; i += 1) {
           if (activeSessionId) {
@@ -868,7 +1026,7 @@ export function WatchPage() {
           </div>
         )}
 
-        <div className="ct-watch-player-wrap">
+        <div className={`ct-watch-player-wrap${shouldShowIntro ? " ct-watch-player-wrap-intro" : ""}`}>
           {!isSessionReady ? (
             <div className="ct-watch-player-placeholder" aria-hidden="true">
               <img
