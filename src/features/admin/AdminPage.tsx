@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Search, Shield, ChevronRight, Film, Award, BarChart3 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
-import { getAdminLearners } from "../../api/admin";
+import { getAdminLearners, getAdminOverview } from "../../api/admin";
 import { getApiMessage } from "../../api/errors";
 import { useAuthStore } from "../../store/useAuthStore";
 import type { AdminUser } from "../../types/api";
@@ -39,6 +39,11 @@ function MLDashboard() {
     queryFn: getAdminLearners,
     staleTime: 60_000,
   });
+  const overviewQuery = useQuery({
+    queryKey: ["admin-overview"],
+    queryFn: getAdminOverview,
+    staleTime: 60_000,
+  });
 
   const learners = learnersQuery.data || [];
 
@@ -52,11 +57,19 @@ function MLDashboard() {
   }, [appliedSearch, learners]);
 
   const stats = useMemo(() => {
+    if (overviewQuery.data) {
+      return {
+        total: overviewQuery.data.learnerCount ?? 0,
+        sessions: overviewQuery.data.sessionCount ?? 0,
+        certificates: overviewQuery.data.certificateCount ?? 0,
+      };
+    }
+
     const total = learners.length;
     const sessions = learners.reduce((sum, l) => sum + (l.sessionCount ?? 0), 0);
     const certificates = learners.reduce((sum, l) => sum + (l.certificateCount ?? 0), 0);
     return { total, sessions, certificates };
-  }, [learners]);
+  }, [learners, overviewQuery.data]);
 
   const hasActiveSearch = appliedSearch.trim().length > 0;
 
@@ -80,8 +93,7 @@ function MLDashboard() {
             ML Model Dashboard
           </h1>
           <p className="ct-page-subtitle">
-            Search a learner to inspect model features, engagement scores, top positive and negative signals, quiz outcomes, and
-            per-session raw payloads.
+            Search a learner to inspect engagement scores, top positive and negative signals, quiz outcomes, and raw ML grading payloads.
           </p>
         </div>
       </div>
@@ -108,11 +120,60 @@ function MLDashboard() {
         <div className="ct-admin-panel-head">
           <div>
             <h2 className="ct-admin-panel-title">
+              <BarChart3 size={18} />
+              Session Status Monitor
+            </h2>
+            <p className="ct-admin-panel-subtitle">
+              Global distribution of session lifecycle states for admin model monitoring.
+            </p>
+          </div>
+        </div>
+
+        {overviewQuery.isLoading ? (
+          <div className="ct-admin-skeleton-stack">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="ct-admin-skeleton-row" />
+            ))}
+          </div>
+        ) : overviewQuery.isError || !overviewQuery.data ? (
+          <div className="ct-admin-muted-box">
+            {getApiMessage(overviewQuery.error, "Failed to load admin overview counts.")}
+          </div>
+        ) : (
+          <div className="ct-admin-metric-grid">
+            <div className="ct-admin-metric-card">
+              <span className="ct-admin-metric-label">Active</span>
+              <strong className="ct-admin-metric-value">{overviewQuery.data.activeSessionCount}</strong>
+              <span className="ct-admin-metric-note">In-progress learning sessions</span>
+            </div>
+            <div className="ct-admin-metric-card">
+              <span className="ct-admin-metric-label">Completed</span>
+              <strong className="ct-admin-metric-value">{overviewQuery.data.completedSessionCount}</strong>
+              <span className="ct-admin-metric-note">Finished watch sessions</span>
+            </div>
+            <div className="ct-admin-metric-card">
+              <span className="ct-admin-metric-label">Quiz Pending</span>
+              <strong className="ct-admin-metric-value">{overviewQuery.data.quizPendingSessionCount}</strong>
+              <span className="ct-admin-metric-note">Awaiting quiz attempts</span>
+            </div>
+            <div className="ct-admin-metric-card">
+              <span className="ct-admin-metric-label">Certified</span>
+              <strong className="ct-admin-metric-value">{overviewQuery.data.certifiedSessionCount}</strong>
+              <span className="ct-admin-metric-note">Dual verification passed</span>
+            </div>
+          </div>
+        )}
+      </section>
+
+      <section className="ct-admin-panel-card">
+        <div className="ct-admin-panel-head">
+          <div>
+            <h2 className="ct-admin-panel-title">
               <Search size={18} />
               Find a Learner
             </h2>
             <p className="ct-admin-panel-subtitle">
-              Search by learner name, email, or user ID, then click Inspect ML Data to open full session-level analysis.
+              Search by learner name, email, or user ID, then click Inspect ML Data to open full session-level ML analysis.
             </p>
           </div>
         </div>

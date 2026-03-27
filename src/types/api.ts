@@ -159,6 +159,16 @@ export interface AdminUser {
   certificateCount?: number;
 }
 
+export interface AdminOverview {
+  learnerCount: number;
+  sessionCount: number;
+  activeSessionCount: number;
+  completedSessionCount: number;
+  quizPendingSessionCount: number;
+  certifiedSessionCount: number;
+  certificateCount: number;
+}
+
 export interface AdminEngagementContributor {
   feature: string;
   shap_value?: number;
@@ -190,7 +200,6 @@ export interface AdminLearnerSessionInsight {
   endedAtUtc?: string | null;
   lastPositionSec?: number | null;
   videoDurationSec?: number | null;
-  features?: Record<string, unknown> | null;
   engagement?: AdminEngagementResult | null;
 }
 
@@ -201,6 +210,8 @@ export interface AdminLearnerQuizAttemptInsight {
   scorePercent?: number | null;
   passedFlag?: boolean | null;
   answers?: unknown;
+  review?: unknown;
+  mlResponse?: unknown;
   createdAtUtc?: string | null;
 }
 
@@ -211,7 +222,6 @@ export interface AdminLearnerQuizQuestionInsight {
   questionType?: string | null;
   questionText?: string | null;
   options?: unknown;
-  correctAnswer?: string | null;
   explanationText?: string | null;
 }
 

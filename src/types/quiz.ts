@@ -17,8 +17,6 @@ export interface QuizQuestion {
 export interface QuizGenerateRequest {
   sessionId: string;
   difficulty?: "easy" | "medium" | "hard";
-  numQuestions?: number;
-  includeCoding?: boolean;
 }
 
 export interface QuizResponse {
@@ -44,14 +42,6 @@ export interface QuizQuestionReview {
   correctAnswer: string;
   correct: boolean;
   explanation: string;
-  // legacy/compatibility fields from older payloads
-  submittedAnswer?: string;
-  userAnswer?: string;
-  answer?: string;
-  expectedAnswer?: string;
-  isCorrect?: boolean;
-  reason?: string;
-  feedback?: string;
 }
 
 export interface QuizResultResponse {
@@ -63,17 +53,6 @@ export interface QuizResultResponse {
   certificateId: string | null;
   verificationLink: string | null;
   review?: QuizQuestionReview[];
-  // legacy fallback fields still tolerated from older backend responses
-  explanation?: string | null;
-  feedback?: string | null;
-  questionResults?: QuizQuestionReview[];
-  wrongQuestions?: QuizQuestionReview[];
-  incorrectQuestions?: QuizQuestionReview[];
-  answers?: Record<string, string>;
-  userAnswers?: Record<string, string>;
-  correctAnswers?: Record<string, string>;
-  wrongQuestionIds?: string[];
-  incorrectQuestionIds?: string[];
 }
 
 // Backward compatible aliases used across existing pages.

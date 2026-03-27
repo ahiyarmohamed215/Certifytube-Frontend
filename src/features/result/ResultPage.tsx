@@ -88,6 +88,16 @@ function answerNorm(value: unknown): string {
   return asText(value).toLowerCase();
 }
 
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (typeof error === "object" && error !== null && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim().length > 0) {
+      return message;
+    }
+  }
+  return fallback;
+}
+
 function questionKey(q: QuizQuestion, idx: number): string {
   const key = asText(q.questionId);
   return key.length > 0 ? key : `q${idx + 1}`;
@@ -134,36 +144,15 @@ function reviewItemId(item: QuizReviewItem, idx: number): string {
   );
 }
 
-function collectReviewItems(result: QuizSubmitResponse): QuizReviewItem[] {
-  if (Array.isArray(result.review) && result.review.length > 0) {
-    return result.review;
-  }
-
-  const fallbackArrays: Array<QuizReviewItem[] | undefined> = [
-    result.questionResults,
-    result.wrongQuestions,
-    result.incorrectQuestions,
-  ];
-
-  const merged: QuizReviewItem[] = [];
-  for (const arr of fallbackArrays) {
-    if (!Array.isArray(arr)) continue;
-    merged.push(...arr);
-  }
-  return merged;
-}
-
 function buildReviewRows(
   result: QuizSubmitResponse | null,
   quizQuestions: QuizQuestion[],
   submittedAnswers: Record<string, string>,
 ): ReviewRow[] {
   if (!result) return [];
-  const answersFromResult = toRecord(result.answers) || toRecord(result.userAnswers) || {};
-  const mergedAnswers: Record<string, string> = { ...answersFromResult, ...submittedAnswers };
 
   const reviewByQuestionId = new Map<string, QuizReviewItem>();
-  const reviewItems = collectReviewItems(result);
+  const reviewItems = Array.isArray(result.review) ? result.review : [];
   reviewItems.forEach((item, idx) => {
     const id = reviewItemId(item, idx);
     reviewByQuestionId.set(id, item);
@@ -180,21 +169,14 @@ function buildReviewRows(
 
     const yourAnswer =
       asText(reviewItem?.selectedAnswer)
-      || asText(reviewItem?.submittedAnswer)
-      || asText(reviewItem?.userAnswer)
-      || asText(reviewItem?.answer)
-      || asText(mergedAnswers[id])
-      || asText(mergedAnswers[fallbackId]);
+      || asText(submittedAnswers[id])
+      || asText(submittedAnswers[fallbackId]);
 
-    const correctAnswer =
-      asText(reviewItem?.correctAnswer)
-      || asText(reviewItem?.expectedAnswer);
+    const correctAnswer = asText(reviewItem?.correctAnswer);
 
     let isCorrect: boolean | null = null;
     if (typeof reviewItem?.correct === "boolean") {
       isCorrect = reviewItem.correct;
-    } else if (typeof reviewItem?.isCorrect === "boolean") {
-      isCorrect = reviewItem.isCorrect;
     } else if (yourAnswer && correctAnswer) {
       isCorrect = answerNorm(yourAnswer) === answerNorm(correctAnswer);
     }
@@ -207,8 +189,6 @@ function buildReviewRows(
       isCorrect,
       explanation:
         asText(reviewItem?.explanation)
-        || asText(reviewItem?.reason)
-        || asText(reviewItem?.feedback)
         || null,
     };
 
@@ -224,19 +204,12 @@ function buildReviewRows(
 
     const yourAnswer =
       asText(item.selectedAnswer)
-      || asText(item.submittedAnswer)
-      || asText(item.userAnswer)
-      || asText(item.answer)
-      || asText(mergedAnswers[id]);
-    const correctAnswer =
-      asText(item.correctAnswer)
-      || asText(item.expectedAnswer);
+      || asText(submittedAnswers[id]);
+    const correctAnswer = asText(item.correctAnswer);
 
     let isCorrect: boolean | null = null;
     if (typeof item.correct === "boolean") {
       isCorrect = item.correct;
-    } else if (typeof item.isCorrect === "boolean") {
-      isCorrect = item.isCorrect;
     } else if (yourAnswer && correctAnswer) {
       isCorrect = answerNorm(yourAnswer) === answerNorm(correctAnswer);
     }
@@ -247,13 +220,13 @@ function buildReviewRows(
       yourAnswer,
       correctAnswer: correctAnswer || null,
       isCorrect,
-      explanation: asText(item.explanation) || asText(item.reason) || asText(item.feedback) || null,
+      explanation: asText(item.explanation) || null,
     });
     seenQuestionIds.add(id);
   }
 
   if (rows.length === 0) {
-    for (const [id, ans] of Object.entries(mergedAnswers)) {
+    for (const [id, ans] of Object.entries(submittedAnswers)) {
       rows.push({
         questionId: id,
         questionText: id,
@@ -311,10 +284,11 @@ export function ResultPage() {
         if (cancelled) return;
         setResult(r);
         setLoadError(null);
-      } catch (e: any) {
+      } catch (error: unknown) {
         if (cancelled) return;
-        setLoadError(e?.message || "Failed to load result");
-        toast.error(e?.message || "Failed to load result");
+        const message = getErrorMessage(error, "Failed to load result");
+        setLoadError(message);
+        toast.error(message);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -350,12 +324,6 @@ export function ResultPage() {
       cancelled = true;
     };
   }, [quizId, quizMeta?.sessionId, quizQuestions.length]);
-
-  useEffect(() => {
-    if (Object.keys(submittedAnswers).length > 0 || !result) return;
-    const fromResult = toRecord((result as any)?.answers) || toRecord((result as any)?.userAnswers);
-    if (fromResult) setSubmittedAnswers(fromResult);
-  }, [result, submittedAnswers]);
 
   useEffect(() => {
     if (!quizId || Object.keys(submittedAnswers).length > 0) return;
@@ -405,9 +373,6 @@ export function ResultPage() {
   }, [quizMeta?.sessionId, result, result?.passed]);
 
   const explanation = useMemo(() => {
-    const raw: any = result;
-    const fromBackend = asText(raw?.explanation) || asText(raw?.feedback);
-    if (fromBackend) return fromBackend;
     if (!result) return "";
     if (result.passed) {
       return "You passed the quiz based on your score and correct answer count. You can now open your certificate.";
@@ -443,8 +408,8 @@ export function ResultPage() {
       const latest = await getQuizResult(quizId);
       setResult(latest);
       return latest;
-    } catch (e: any) {
-      toast.error(e?.message || "Failed to refresh quiz result");
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, "Failed to refresh quiz result"));
       return null;
     }
   };
@@ -489,8 +454,8 @@ export function ResultPage() {
     try {
       await downloadCertificatePdf(certificateId);
       toast.success("Certificate downloaded");
-    } catch (e: any) {
-      toast.error(e?.message || "Download failed");
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, "Download failed"));
     } finally {
       setDownloading(false);
     }

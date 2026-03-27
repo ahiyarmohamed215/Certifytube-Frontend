@@ -375,8 +375,6 @@ export function QuizPage() {
       const q = await generateQuiz({
         sessionId: sid,
         difficulty: "medium",
-        numQuestions: 10,
-        includeCoding: false,
       });
       const consumed = markQuizAttemptGenerated(q.sessionId, q.quizId);
       setConsumedAttemptsUsed(consumed);

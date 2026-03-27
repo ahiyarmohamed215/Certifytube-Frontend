@@ -33,14 +33,23 @@ import {
   formatAdminPercent,
   formatAdminSeconds,
   humanizeAdminKey,
+  normalizeUnknownArray,
   normalizeOptions,
   normalizeRecord,
   prettyPrintJson,
-  resolveQuizAnswer,
   stringifyPrimitive,
 } from "./adminLearnerUtils";
 
 type LearnerProfileTab = "sessions" | "quizzes" | "certificates";
+type SessionStatusFilter = "ALL" | "ACTIVE" | "COMPLETED" | "QUIZ_PENDING" | "CERTIFIED";
+
+const SESSION_STATUS_FILTERS: Array<{ key: SessionStatusFilter; label: string }> = [
+  { key: "ALL", label: "All Sessions" },
+  { key: "ACTIVE", label: "Active" },
+  { key: "COMPLETED", label: "Completed" },
+  { key: "QUIZ_PENDING", label: "Quiz Pending" },
+  { key: "CERTIFIED", label: "Certified" },
+];
 
 type CertificateActionState = {
   action: "revoke" | "delete";
@@ -156,7 +165,6 @@ function EngagementSignalSection({
 }
 
 function SessionCard({ session }: { session: AdminLearnerSessionInsight }) {
-  const featuresRecord = normalizeRecord(session.features);
   const engagement = session.engagement;
 
   return (
@@ -236,16 +244,30 @@ function SessionCard({ session }: { session: AdminLearnerSessionInsight }) {
         )}
       </div>
 
-      <div className="ct-admin-subpanel">
-        <h4 className="ct-admin-subsection-title">Session Features</h4>
-        <KeyValueGrid data={featuresRecord} />
-        <JsonBlock title="Raw Session Features" value={session.features ?? {}} />
-      </div>
     </article>
   );
 }
 
 function QuizCard({ quiz }: { quiz: AdminLearnerQuizInsight }) {
+  const reviewRows = useMemo(
+    () =>
+      normalizeUnknownArray(quiz.latestAttempt?.review)
+        .map((row) => normalizeRecord(row))
+        .filter((row): row is Record<string, unknown> => Boolean(row)),
+    [quiz.latestAttempt?.review],
+  );
+  const mlResponseRecord = normalizeRecord(quiz.latestAttempt?.mlResponse);
+  const mlSummary = mlResponseRecord
+    ? {
+        total_questions: mlResponseRecord.total_questions,
+        answered_questions: mlResponseRecord.answered_questions,
+        correct_answers: mlResponseRecord.correct_answers,
+        incorrect_answers: mlResponseRecord.incorrect_answers,
+        unanswered_questions: mlResponseRecord.unanswered_questions,
+        quiz_score_percent: mlResponseRecord.quiz_score_percent,
+      }
+    : null;
+
   return (
     <article className="ct-admin-resource-card">
       <div className="ct-admin-resource-head">
@@ -297,15 +319,68 @@ function QuizCard({ quiz }: { quiz: AdminLearnerQuizInsight }) {
             </div>
           </div>
           <JsonBlock title="Raw Answers" value={quiz.latestAttempt.answers ?? {}} />
+          <JsonBlock title="Raw Review Payload" value={quiz.latestAttempt.review ?? []} />
+          <JsonBlock title="Raw ML Grade Response" value={quiz.latestAttempt.mlResponse ?? {}} />
+        </div>
+      )}
+
+      {reviewRows.length > 0 && (
+        <div className="ct-admin-subpanel">
+          <h4 className="ct-admin-subsection-title">ML Grading Review</h4>
+          <div className="ct-admin-question-list">
+            {reviewRows.map((row, index) => {
+              const questionId = stringifyPrimitive(
+                row.question_id ?? row.questionId ?? row.id ?? `q${index + 1}`,
+              );
+              const submittedAnswer = stringifyPrimitive(
+                row.submitted_answer ?? row.submittedAnswer ?? row.selectedAnswer,
+              );
+              const correctAnswer = stringifyPrimitive(row.correct_answer ?? row.correctAnswer);
+              const explanation = stringifyPrimitive(row.explanation ?? row.reason ?? row.feedback);
+              const isCorrect = row.is_correct ?? row.isCorrect;
+              const correctnessLabel =
+                typeof isCorrect === "boolean" ? (isCorrect ? "Correct" : "Incorrect") : "Unknown";
+
+              return (
+                <div key={`${quiz.quizId}-review-${index}`} className="ct-admin-question-card">
+                  <div className="ct-admin-question-header">
+                    <strong>{questionId}</strong>
+                    <span className={`ct-admin-chip ${correctnessLabel === "Correct" ? "is-good" : "is-bad"}`}>
+                      {correctnessLabel}
+                    </span>
+                  </div>
+                  <div className="ct-admin-kv-grid">
+                    <div className="ct-admin-kv-card">
+                      <span>Submitted Answer</span>
+                      <strong>{submittedAnswer}</strong>
+                    </div>
+                    <div className="ct-admin-kv-card">
+                      <span>Correct Answer</span>
+                      <strong>{correctAnswer}</strong>
+                    </div>
+                  </div>
+                  <div className="ct-admin-muted-box">
+                    <strong>Explanation:</strong> {explanation}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {mlSummary && (
+        <div className="ct-admin-subpanel">
+          <h4 className="ct-admin-subsection-title">ML Grade Summary</h4>
+          <KeyValueGrid data={mlSummary} />
         </div>
       )}
 
       <div className="ct-admin-subpanel">
-        <h4 className="ct-admin-subsection-title">Question Review</h4>
+        <h4 className="ct-admin-subsection-title">Question Bank</h4>
         <div className="ct-admin-question-list">
           {quiz.questions.map((question, index) => {
             const options = normalizeOptions(question.options);
-            const selectedAnswer = resolveQuizAnswer(quiz.latestAttempt?.answers, question);
             return (
               <div key={`${quiz.quizId}-${question.id}`} className="ct-admin-question-card">
                 <div className="ct-admin-question-header">
@@ -316,35 +391,16 @@ function QuizCard({ quiz }: { quiz: AdminLearnerQuizInsight }) {
 
                 {options.length > 0 && (
                   <div className="ct-admin-option-list">
-                    {options.map((option) => {
-                      const isCorrect = option.label === question.correctAnswer;
-                      const isSelected = option.label === selectedAnswer;
-                      return (
-                        <div key={option.key} className={`ct-admin-option-row ${isCorrect ? "is-correct" : ""} ${isSelected ? "is-selected" : ""}`}>
-                          <span>{option.label}</span>
-                          <div className="ct-admin-badge-row">
-                            {isSelected && <span className="ct-admin-chip is-neutral">Selected</span>}
-                            {isCorrect && <span className="ct-admin-chip is-good">Correct</span>}
-                          </div>
-                        </div>
-                      );
-                    })}
+                    {options.map((option) => (
+                      <div key={option.key} className="ct-admin-option-row">
+                        <span>{option.label}</span>
+                      </div>
+                    ))}
                   </div>
                 )}
 
-                <div className="ct-admin-kv-grid">
-                  <div className="ct-admin-kv-card">
-                    <span>Correct Answer</span>
-                    <strong>{question.correctAnswer || "-"}</strong>
-                  </div>
-                  <div className="ct-admin-kv-card">
-                    <span>Learner Answer</span>
-                    <strong>{selectedAnswer || "-"}</strong>
-                  </div>
-                </div>
-
                 <div className="ct-admin-muted-box">
-                  <strong>Explanation:</strong> {question.explanationText || "No explanation returned."}
+                  <strong>Question Explanation:</strong> {question.explanationText || "No explanation returned."}
                 </div>
 
                 <JsonBlock title="Raw Question Payload" value={question} />
@@ -363,6 +419,7 @@ export function AdminLearnerProfilePage() {
   const qc = useQueryClient();
   const { user } = useAuthStore();
   const [tab, setTab] = useState<LearnerProfileTab>("sessions");
+  const [sessionStatusFilter, setSessionStatusFilter] = useState<SessionStatusFilter>("ALL");
   const [certificateAction, setCertificateAction] = useState<CertificateActionState>(null);
 
   const isAdmin = user?.role === "ADMIN";
@@ -437,6 +494,33 @@ export function AdminLearnerProfilePage() {
     { key: "certificates" as const, label: "Certificates", count: profile?.certificates.length || 0 },
   ], [profile?.certificates.length, profile?.quizzes.length, profile?.sessions.length]);
 
+  const sessionStatusCounts = useMemo(() => {
+    const counts: Record<SessionStatusFilter, number> = {
+      ALL: profile?.sessions.length || 0,
+      ACTIVE: 0,
+      COMPLETED: 0,
+      QUIZ_PENDING: 0,
+      CERTIFIED: 0,
+    };
+
+    (profile?.sessions || []).forEach((session) => {
+      const status = (session.status || "").toUpperCase();
+      if (status === "ACTIVE" || status === "COMPLETED" || status === "QUIZ_PENDING" || status === "CERTIFIED") {
+        counts[status] += 1;
+      }
+    });
+
+    return counts;
+  }, [profile?.sessions]);
+
+  const filteredSessions = useMemo(() => {
+    const sessions = profile?.sessions || [];
+    if (sessionStatusFilter === "ALL") {
+      return sessions;
+    }
+    return sessions.filter((session) => (session.status || "").toUpperCase() === sessionStatusFilter);
+  }, [profile?.sessions, sessionStatusFilter]);
+
   if (!isAdmin) {
     return <AdminAccessDenied />;
   }
@@ -493,9 +577,15 @@ export function AdminLearnerProfilePage() {
 
   const renderTabContent = () => {
     if (tab === "sessions") {
-      return profile.sessions.length > 0
-        ? profile.sessions.map((session) => <SessionCard key={session.sessionId} session={session} />)
-        : <div className="ct-admin-muted-box">No sessions found for this learner.</div>;
+      return filteredSessions.length > 0
+        ? filteredSessions.map((session) => <SessionCard key={session.sessionId} session={session} />)
+        : (
+          <div className="ct-admin-muted-box">
+            {sessionStatusFilter === "ALL"
+              ? "No sessions found for this learner."
+              : `No ${SESSION_STATUS_FILTERS.find((s) => s.key === sessionStatusFilter)?.label.toLowerCase() || "matching"} found for this learner.`}
+          </div>
+        );
     }
 
     if (tab === "quizzes") {
@@ -661,17 +751,45 @@ export function AdminLearnerProfilePage() {
 
       <section className="ct-admin-tab-panel">
         {tab === "sessions" && (
-          <SectionHeader
-            icon={<Film size={18} />}
-            title="Sessions + ML Insights"
-            subtitle="Review raw session behavior, extracted features, and the engagement explanation per session."
-          />
+          <>
+            <SectionHeader
+              icon={<Film size={18} />}
+              title="Sessions + ML Insights"
+              subtitle="Review active, completed, quiz-pending, and certified sessions with engagement explanation/signals."
+            />
+            <div className="ct-admin-subpanel">
+              <h4 className="ct-admin-subsection-title">Session Status Breakdown</h4>
+              <div className="ct-admin-kv-grid">
+                {SESSION_STATUS_FILTERS.map((statusFilter) => (
+                  <div key={`status-summary-${statusFilter.key}`} className="ct-admin-kv-card">
+                    <span>{statusFilter.label}</span>
+                    <strong>{sessionStatusCounts[statusFilter.key]}</strong>
+                  </div>
+                ))}
+              </div>
+              <div className="ct-admin-filter-row">
+                {SESSION_STATUS_FILTERS.map((statusFilter) => {
+                  const selected = sessionStatusFilter === statusFilter.key;
+                  return (
+                    <button
+                      key={`status-filter-${statusFilter.key}`}
+                      type="button"
+                      className={`ct-btn ct-btn-sm ${selected ? "ct-btn-primary" : "ct-btn-secondary"}`}
+                      onClick={() => setSessionStatusFilter(statusFilter.key)}
+                    >
+                      {statusFilter.label} ({sessionStatusCounts[statusFilter.key]})
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </>
         )}
         {tab === "quizzes" && (
           <SectionHeader
             icon={<BookOpen size={18} />}
             title="Quizzes"
-            subtitle="Review quiz metadata, the latest learner attempt, and every question with answers and explanations."
+            subtitle="Review quiz metadata, ML grading review, raw ML grade payload, and question content."
           />
         )}
         {tab === "certificates" && (

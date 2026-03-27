@@ -174,6 +174,8 @@ export function WatchPage() {
   const [endingSession, setEndingSession] = useState(false);
   const [closingPlayer, setClosingPlayer] = useState(false);
   const [showWatchIntro, setShowWatchIntro] = useState(true);
+  const [playerReadyTick, setPlayerReadyTick] = useState(0);
+  const [watchFinishedHint, setWatchFinishedHint] = useState(false);
 
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -243,6 +245,8 @@ export function WatchPage() {
   }, []);
 
   useEffect(() => {
+    setPlayerReadyTick(0);
+    setWatchFinishedHint(false);
     lastObservedTimeRef.current = null;
     lastObservedAtMsRef.current = null;
     lastSeekSentAtRef.current = 0;
@@ -354,7 +358,9 @@ export function WatchPage() {
       applyResumePosition();
       window.setTimeout(applyResumePosition, 250);
       window.setTimeout(applyResumePosition, 900);
-      suppressSeekUntilMsRef.current = Date.now() + 2200;
+      window.setTimeout(applyResumePosition, 1600);
+      window.setTimeout(applyResumePosition, 2400);
+      suppressSeekUntilMsRef.current = Date.now() + 3200;
       lastObservedTimeRef.current = resumeAt;
       lastObservedAtMsRef.current = Date.now();
     },
@@ -399,7 +405,7 @@ export function WatchPage() {
   }, [attemptResumePlayback]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const recoverNearEndPause = useCallback((player?: any): boolean => {
+  const recoverNearEndPlayback = useCallback((player?: any): boolean => {
     if (!player || sessionEndedRef.current || endingSessionRef.current) return false;
     if (document.visibilityState === "hidden") return false;
 
@@ -605,7 +611,7 @@ export function WatchPage() {
   ]);
 
   useEffect(() => {
-    if (!canLog || !playerRef.current) return;
+    if (!canLog || playerReadyTick === 0 || !playerRef.current) return;
 
     const t = window.setInterval(() => {
       const p = playerRef.current;
@@ -619,10 +625,10 @@ export function WatchPage() {
     }, 3000);
 
     return () => window.clearInterval(t);
-  }, [canLog]);
+  }, [canLog, playerReadyTick]);
 
   useEffect(() => {
-    if (!canLog || !playerRef.current) return;
+    if (!canLog || playerReadyTick === 0 || !playerRef.current) return;
     try {
       const state = normalizeObservedPlayerState(playerRef.current.getPlayerState?.() ?? Number.NaN);
       const eventType = getStateChangeEventType(state);
@@ -635,7 +641,7 @@ export function WatchPage() {
     } catch {
       // noop
     }
-  }, [canLog, enqueue, startTimer]);
+  }, [canLog, enqueue, playerReadyTick, startTimer]);
 
   const flushAndEndSession = useCallback(async (): Promise<string | null> => {
     const sid = sessionIdRef.current;
@@ -765,6 +771,7 @@ export function WatchPage() {
   const onReady = (e: any) => {
     playerRef.current = e.target;
     playerStateRef.current = PLAYER_EVENT_STATE.ready;
+    setPlayerReadyTick((value) => value + 1);
     try {
       setDuration(e.target.getDuration());
       lastObservedTimeRef.current = e.target.getCurrentTime();
@@ -784,6 +791,7 @@ export function WatchPage() {
   const onStateChange = (e: any) => {
     const state = normalizeObservedPlayerState(e.data);
     playerStateRef.current = state;
+    let observedDuration = Number.isFinite(duration) && duration > 0 ? duration : Number.NaN;
 
     const p = playerRef.current;
     if (p) {
@@ -796,6 +804,7 @@ export function WatchPage() {
           lastObservedAtMsRef.current = Date.now();
         }
         if (Number.isFinite(nextDuration)) {
+          observedDuration = nextDuration;
           setDuration(nextDuration);
         }
       } catch {
@@ -810,18 +819,26 @@ export function WatchPage() {
 
     if (eventType === "play") {
       lastNearEndRecoveryAtRef.current = 0;
+      setWatchFinishedHint(false);
       if (canLog) startTimer();
     } else if (eventType === "pause") {
-      if (recoverNearEndPause(p)) {
+      if (recoverNearEndPlayback(p)) {
         return;
       }
     } else if (eventType === "ended") {
+      if (recoverNearEndPlayback(p)) {
+        return;
+      }
       lastNearEndRecoveryAtRef.current = 0;
-      toast("Video finished. Click Complete Session to continue.");
+      setWatchFinishedHint(true);
+      toast("Finished watching. Click Complete Session to get the engagement score.");
     }
 
     if (canLog) {
-      enqueue(makeEvent(eventType, undefined, state));
+      const endedExtras = eventType === "ended" && Number.isFinite(observedDuration) && observedDuration > 0
+        ? { currentTimeSec: observedDuration }
+        : undefined;
+      enqueue(makeEvent(eventType, endedExtras, state));
       if (eventType === "ended") {
         void flushCurrentSession();
       }
@@ -836,7 +853,7 @@ export function WatchPage() {
   };
 
   useEffect(() => {
-    if (!canLog || !playerRef.current) return;
+    if (!canLog || playerReadyTick === 0 || !playerRef.current) return;
 
     const t = window.setInterval(() => {
       const p = playerRef.current;
@@ -854,7 +871,7 @@ export function WatchPage() {
       }
 
       if (!Number.isFinite(current)) return;
-      if (state === PLAYER_EVENT_STATE.pause && recoverNearEndPause(p)) {
+      if ((state === PLAYER_EVENT_STATE.pause || state === PLAYER_EVENT_STATE.ended) && recoverNearEndPlayback(p)) {
         return;
       }
       const now = Date.now();
@@ -888,10 +905,10 @@ export function WatchPage() {
 
       lastObservedTimeRef.current = current;
       lastObservedAtMsRef.current = now;
-    }, 250);
+    }, 150);
 
     return () => window.clearInterval(t);
-  }, [canLog, enqueue]);
+  }, [canLog, enqueue, playerReadyTick, recoverNearEndPlayback]);
 
   const handleEndSession = async () => {
     if (!sessionId || sessionEnded) return;
@@ -1091,6 +1108,16 @@ export function WatchPage() {
             </div>
           )}
         </div>
+
+        {watchFinishedHint && !sessionEnded && (
+          <div className="ct-banner ct-banner-success" style={{ marginTop: 16 }}>
+            <span>
+              {stemEligible
+                ? "Finished watching. Click Complete Session to get the engagement score."
+                : "Finished watching. Click Complete Session to save this session."}
+            </span>
+          </div>
+        )}
 
         {sessionEnded && stemEligible === false && (
           <div className="ct-banner ct-banner-warning" style={{ marginTop: 16 }}>

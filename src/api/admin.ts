@@ -1,8 +1,14 @@
 import { http } from "./http";
 import type {
+    AdminOverview,
     AdminUser,
     AdminLearnerProfileResponse,
 } from "../types/api";
+
+export async function getAdminOverview(): Promise<AdminOverview> {
+    const res = await http.get<AdminOverview>("/api/admin/overview");
+    return res.data;
+}
 
 export async function getAdminLearners(): Promise<AdminUser[]> {
     const res = await http.get<AdminUser[]>("/api/admin/learners");

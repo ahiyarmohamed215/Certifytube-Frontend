@@ -182,8 +182,6 @@ describe("QuizPage", () => {
       expect(mockedGenerateQuiz).toHaveBeenCalledWith({
         sessionId: "session-1",
         difficulty: "medium",
-        numQuestions: 10,
-        includeCoding: false,
       });
     });
 
