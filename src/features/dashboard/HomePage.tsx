@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { Play, BarChart3, ClipboardCheck, Award, BookOpen, Clock, RotateCcw, Sparkles, Trash2, AlertTriangle, Menu, X, ChevronDown } from "lucide-react";
@@ -361,6 +361,8 @@ export function MyLearningsPage() {
   });
   const [stemFilter, setStemFilter] = useState<StemFilter>("all");
   const [resumeContext, setResumeContext] = useState<PersistedWatchContext | null>(() => readPersistedWatchContext());
+  const [mobileStatusMenuOpen, setMobileStatusMenuOpen] = useState(false);
+  const mobileStatusMenuRef = useRef<HTMLDivElement | null>(null);
   const hasOpenModal = Boolean(deleteTarget || attemptsVideoId);
   const showResumeBanner = Boolean(resumeContext && resumeContext.showBanner !== false);
 
@@ -376,6 +378,33 @@ export function MyLearningsPage() {
       }
     }
   }, [location.pathname, location.key]);
+
+  useEffect(() => {
+    if (!mobileStatusMenuOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!mobileStatusMenuRef.current?.contains(event.target as Node)) {
+        setMobileStatusMenuOpen(false);
+      }
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMobileStatusMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [mobileStatusMenuOpen]);
+
+  useEffect(() => {
+    setMobileStatusMenuOpen(false);
+  }, [selectedStatus]);
 
   const toggleStemFilter = (next: StemFilter) => {
     setStemFilter((prev) => {
@@ -644,23 +673,42 @@ export function MyLearningsPage() {
         <>
           <div className="ct-learning-mobile-nav">
             <div className="ct-learning-mobile-status-field">
-              <label htmlFor="ct-learning-mobile-status" className="ct-learning-mobile-field-label">
+              <label htmlFor="ct-learning-mobile-status-trigger" className="ct-learning-mobile-field-label">
                 Status
               </label>
-              <div className="ct-learning-mobile-status-select-wrap">
-                <select
-                  id="ct-learning-mobile-status"
-                  className="ct-learning-mobile-status-select"
-                  value={selectedStatus}
-                  onChange={(e) => setSelectedStatus(e.target.value as LearningStatusTab)}
+              <div className="ct-learning-mobile-status-select-wrap" ref={mobileStatusMenuRef}>
+                <button
+                  type="button"
+                  id="ct-learning-mobile-status-trigger"
+                  className={`ct-learning-mobile-status-trigger ${mobileStatusMenuOpen ? "is-open" : ""}`}
+                  aria-haspopup="listbox"
+                  aria-expanded={mobileStatusMenuOpen}
+                  onClick={() => setMobileStatusMenuOpen((open) => !open)}
+                >
+                  <span className="ct-learning-mobile-status-trigger-text">
+                    {selectedNavItem?.label || "Status"}
+                  </span>
+                  <ChevronDown size={16} className={`ct-learning-mobile-status-chevron ${mobileStatusMenuOpen ? "is-open" : ""}`} />
+                </button>
+                <div
+                  className={`ct-learning-mobile-status-menu ${mobileStatusMenuOpen ? "is-open" : ""}`}
+                  role="listbox"
+                  aria-labelledby="ct-learning-mobile-status-trigger"
                 >
                   {sideNavItems.map((item) => (
-                    <option key={item.key} value={item.key}>
-                      {item.label} ({item.count})
-                    </option>
+                    <button
+                      key={item.key}
+                      type="button"
+                      role="option"
+                      aria-selected={selectedStatus === item.key}
+                      className={`ct-learning-mobile-status-option ${selectedStatus === item.key ? "is-active" : ""}`}
+                      onClick={() => setSelectedStatus(item.key)}
+                    >
+                      <span>{item.label}</span>
+                      <span className="ct-learning-mobile-status-option-count">{item.count}</span>
+                    </button>
                   ))}
-                </select>
-                <ChevronDown size={16} className="ct-learning-mobile-status-chevron" />
+                </div>
               </div>
             </div>
             <span className="ct-learning-side-pill ct-learning-mobile-status-pill">
