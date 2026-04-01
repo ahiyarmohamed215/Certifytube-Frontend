@@ -2,12 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import YouTube from "react-youtube";
+import type { YouTubeEvent } from "react-youtube";
 import { AlertTriangle, StopCircle, BarChart3, X, Clock, RotateCcw } from "lucide-react";
 import toast from "react-hot-toast";
 
 import { startSession, endSession } from "../../api/sessions";
 import { getDashboard } from "../../api/dashboard";
 import { useEventBatcher } from "./hooks/useEventBatcher";
+import { getErrorMessage, readPlayerSnapshot, type WatchPlayer } from "./watchPlayer";
 import type { DashboardResponse, DashboardVideo, EventPayload, SessionStatus, StartSessionResponse } from "../../types/api";
 import {
   PLAYER_EVENT_STATE,
@@ -180,8 +182,7 @@ export function WatchPage() {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const playerRef = useRef<any>(null);
+  const playerRef = useRef<WatchPlayer | null>(null);
   const playerStateRef = useRef<number>(PLAYER_EVENT_STATE.unstarted);
   const sessionIdRef = useRef<string | null>(null);
   const sessionEndedRef = useRef(false);
@@ -262,13 +263,9 @@ export function WatchPage() {
       return observedPlayerState;
     }
 
-    try {
-      const liveState = Number(playerRef.current?.getPlayerState?.() ?? Number.NaN);
-      if (Number.isFinite(liveState)) {
-        return liveState;
-      }
-    } catch {
-      // noop
+    const liveState = readPlayerSnapshot(playerRef.current).playerState;
+    if (liveState != null) {
+      return liveState;
     }
 
     return playerStateRef.current;
@@ -280,34 +277,10 @@ export function WatchPage() {
     const clientEventMs = performance.now();
     const resolvedObservedState = normalizeObservedPlayerState(readObservedPlayerState(observedPlayerState));
     const fallbackCurrentTime = lastObservedTimeRef.current ?? currentTime;
-
-    let playbackRate = 1;
-    let liveCurrentTime = Number.NaN;
-    let liveDuration = Number.NaN;
-
-    try {
-      const nextPlaybackRate = Number(player?.getPlaybackRate?.() ?? Number.NaN);
-      if (Number.isFinite(nextPlaybackRate) && nextPlaybackRate > 0) {
-        playbackRate = nextPlaybackRate;
-      }
-    } catch {
-      // noop
-    }
-
-    try {
-      liveCurrentTime = Number(player?.getCurrentTime?.() ?? Number.NaN);
-    } catch {
-      // noop
-    }
-
-    try {
-      liveDuration = Number(player?.getDuration?.() ?? Number.NaN);
-    } catch {
-      // noop
-    }
-
-    const resolvedCurrentTime = Number.isFinite(liveCurrentTime) ? liveCurrentTime : fallbackCurrentTime;
-    const resolvedDuration = Number.isFinite(liveDuration) ? liveDuration : duration;
+    const snapshot = readPlayerSnapshot(player);
+    const playbackRate = snapshot.playbackRate != null && snapshot.playbackRate > 0 ? snapshot.playbackRate : 1;
+    const resolvedCurrentTime = snapshot.currentTimeSec ?? fallbackCurrentTime;
+    const resolvedDuration = snapshot.durationSec ?? duration;
     const restExtras = { ...(extras || {}) };
     delete restExtras.sessionId;
     delete restExtras.eventType;
@@ -337,8 +310,7 @@ export function WatchPage() {
   const hasResumePosition = lastPos != null && lastPos > 0;
 
   const attemptResumePlayback = useCallback(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (player?: any) => {
+    (player?: WatchPlayer | null) => {
       if (!player || !hasResumePosition) return;
 
       const resumeKey = `${videoId || ""}:${routeEntryKey}:${sessionIdRef.current || "none"}`;
@@ -348,7 +320,7 @@ export function WatchPage() {
       const resumeAt = lastPos!;
       const applyResumePosition = () => {
         try {
-          player.seekTo(resumeAt, true);
+          player.seekTo?.(resumeAt, true);
           player.playVideo?.();
         } catch {
           // noop
@@ -404,21 +376,14 @@ export function WatchPage() {
     attemptResumePlayback(playerRef.current);
   }, [attemptResumePlayback]);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const recoverNearEndPlayback = useCallback((player?: any): boolean => {
+  const recoverNearEndPlayback = useCallback((player?: WatchPlayer | null): boolean => {
     if (!player || sessionEndedRef.current || endingSessionRef.current) return false;
     if (document.visibilityState === "hidden") return false;
 
-    let current = Number.NaN;
-    let total = Number.NaN;
-    try {
-      current = Number(player.getCurrentTime?.() ?? Number.NaN);
-      total = Number(player.getDuration?.() ?? Number.NaN);
-    } catch {
-      return false;
-    }
-
-    if (!Number.isFinite(current) || !Number.isFinite(total) || total <= 0) return false;
+    const snapshot = readPlayerSnapshot(player);
+    const current = snapshot.currentTimeSec;
+    const total = snapshot.durationSec;
+    if (current == null || total == null || total <= 0) return false;
     const remaining = total - current;
     if (remaining <= 0 || remaining > NEAR_END_RECOVERY_WINDOW_SEC) return false;
 
@@ -447,13 +412,9 @@ export function WatchPage() {
     if (!shouldPersistWatchContextRef.current) return;
     if (!videoId || sessionEndedRef.current) return;
     let lastPositionSec: number | undefined;
-    try {
-      const position = Number(playerRef.current?.getCurrentTime?.() ?? lastObservedTimeRef.current ?? 0);
-      if (Number.isFinite(position) && position > 0) {
-        lastPositionSec = position;
-      }
-    } catch {
-      // noop
+    const position = readPlayerSnapshot(playerRef.current).currentTimeSec ?? lastObservedTimeRef.current ?? 0;
+    if (Number.isFinite(position) && position > 0) {
+      lastPositionSec = position;
     }
     const payload: PersistedWatchContext = {
       videoId,
@@ -568,7 +529,7 @@ export function WatchPage() {
         setLastPos(res.lastPositionSec);
         setSessionEnded(false);
         setShowWatchIntro(res.stemEligible && !shouldResumePlayback);
-      } catch (e: any) {
+      } catch (e: unknown) {
         try {
           const latest = pickLatestActiveSessionByVideo(await getDashboard(), videoId);
           if (!cancelled && latest?.sessionId) {
@@ -589,7 +550,7 @@ export function WatchPage() {
           setStemMessage("Playback started without session tracking. Please reopen from My Learnings if progress does not update.");
           setShowWatchIntro(false);
         }
-        toast.error(e?.message || "Failed to start session");
+        toast.error(getErrorMessage(e, "Failed to start session"));
       }
     })();
 
@@ -616,12 +577,9 @@ export function WatchPage() {
     const t = window.setInterval(() => {
       const p = playerRef.current;
       if (!p) return;
-      try {
-        setCurrentTime(p.getCurrentTime());
-        setDuration(p.getDuration());
-      } catch {
-        // noop
-      }
+      const snapshot = readPlayerSnapshot(p);
+      if (snapshot.currentTimeSec != null) setCurrentTime(snapshot.currentTimeSec);
+      if (snapshot.durationSec != null) setDuration(snapshot.durationSec);
     }, 3000);
 
     return () => window.clearInterval(t);
@@ -629,18 +587,14 @@ export function WatchPage() {
 
   useEffect(() => {
     if (!canLog || playerReadyTick === 0 || !playerRef.current) return;
-    try {
-      const state = normalizeObservedPlayerState(playerRef.current.getPlayerState?.() ?? Number.NaN);
-      const eventType = getStateChangeEventType(state);
-      if (!eventType) return;
+    const state = normalizeObservedPlayerState(readPlayerSnapshot(playerRef.current).playerState ?? Number.NaN);
+    const eventType = getStateChangeEventType(state);
+    if (!eventType) return;
 
-      if (eventType === "play") {
-        startTimer();
-      }
-      enqueue(makeEventRef.current(eventType, undefined, state));
-    } catch {
-      // noop
+    if (eventType === "play") {
+      startTimer();
     }
+    enqueue(makeEventRef.current(eventType, undefined, state));
   }, [canLog, enqueue, playerReadyTick, startTimer]);
 
   const flushAndEndSession = useCallback(async (): Promise<string | null> => {
@@ -674,9 +628,9 @@ export function WatchPage() {
         toast.success("Session completed");
       }
       return sid;
-    } catch (e: any) {
+    } catch (e: unknown) {
       if (mountedRef.current) {
-        toast.error(e?.message || "Failed to end session");
+        toast.error(getErrorMessage(e, "Failed to end session"));
       }
       return null;
     } finally {
@@ -695,14 +649,10 @@ export function WatchPage() {
     const pauseIfPlaying = () => {
       const player = playerRef.current;
       if (!player || sessionEndedRef.current) return;
-      try {
-        const state = Number(player.getPlayerState?.() ?? -1);
-        if (state === 1) {
-          player.pauseVideo?.();
-          stopTimer();
-        }
-      } catch {
-        // noop
+      const state = readPlayerSnapshot(player).playerState;
+      if (state === PLAYER_EVENT_STATE.play) {
+        player.pauseVideo?.();
+        stopTimer();
       }
     };
 
@@ -767,48 +717,43 @@ export function WatchPage() {
     };
   }, [enqueueCheckpoint, flushCurrentSession, stopTimer, savePersistedWatchContext, clearPersistedWatchContext]);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const onReady = (e: any) => {
-    playerRef.current = e.target;
+  const onReady = (e: YouTubeEvent) => {
+    const player = e.target as WatchPlayer;
+    playerRef.current = player;
     playerStateRef.current = PLAYER_EVENT_STATE.ready;
     setPlayerReadyTick((value) => value + 1);
-    try {
-      setDuration(e.target.getDuration());
-      lastObservedTimeRef.current = e.target.getCurrentTime();
+    const snapshot = readPlayerSnapshot(player);
+    if (snapshot.durationSec != null) {
+      setDuration(snapshot.durationSec);
+    }
+    if (snapshot.currentTimeSec != null) {
+      lastObservedTimeRef.current = snapshot.currentTimeSec;
       lastObservedAtMsRef.current = Date.now();
-    } catch {
-      // noop
     }
 
     if (canLogRef.current) {
       startTimer();
       enqueue(makeEventRef.current("ready", undefined, PLAYER_EVENT_STATE.ready));
     }
-    attemptResumePlayback(e.target);
+    attemptResumePlayback(player);
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const onStateChange = (e: any) => {
+  const onStateChange = (e: YouTubeEvent<number>) => {
     const state = normalizeObservedPlayerState(e.data);
     playerStateRef.current = state;
     let observedDuration = Number.isFinite(duration) && duration > 0 ? duration : Number.NaN;
 
     const p = playerRef.current;
     if (p) {
-      try {
-        const nextCurrentTime = Number(p.getCurrentTime?.() ?? Number.NaN);
-        const nextDuration = Number(p.getDuration?.() ?? Number.NaN);
-        if (Number.isFinite(nextCurrentTime)) {
-          setCurrentTime(nextCurrentTime);
-          lastObservedTimeRef.current = nextCurrentTime;
-          lastObservedAtMsRef.current = Date.now();
-        }
-        if (Number.isFinite(nextDuration)) {
-          observedDuration = nextDuration;
-          setDuration(nextDuration);
-        }
-      } catch {
-        // noop
+      const snapshot = readPlayerSnapshot(p);
+      if (snapshot.currentTimeSec != null) {
+        setCurrentTime(snapshot.currentTimeSec);
+        lastObservedTimeRef.current = snapshot.currentTimeSec;
+        lastObservedAtMsRef.current = Date.now();
+      }
+      if (snapshot.durationSec != null) {
+        observedDuration = snapshot.durationSec;
+        setDuration(snapshot.durationSec);
       }
     }
 
@@ -826,9 +771,6 @@ export function WatchPage() {
         return;
       }
     } else if (eventType === "ended") {
-      if (recoverNearEndPlayback(p)) {
-        return;
-      }
       lastNearEndRecoveryAtRef.current = 0;
       setWatchFinishedHint(true);
       toast("Finished watching. Click Complete Session to get the engagement score.");
@@ -845,8 +787,7 @@ export function WatchPage() {
     }
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const onPlaybackRateChange = (e: any) => {
+  const onPlaybackRateChange = (e: YouTubeEvent<number>) => {
     if (!canLog) return;
     const rate = Number(e?.data);
     enqueue(makeEvent("ratechange", { playbackRate: Number.isFinite(rate) && rate > 0 ? rate : 1 }));
@@ -859,19 +800,12 @@ export function WatchPage() {
       const p = playerRef.current;
       if (!p) return;
 
-      let current = 0;
-      let state = -1;
-      let playbackRate = 1;
-      try {
-        current = Number(p.getCurrentTime?.() ?? 0);
-        state = normalizeObservedPlayerState(p.getPlayerState?.() ?? Number.NaN);
-        playbackRate = Number(p.getPlaybackRate?.() ?? 1);
-      } catch {
-        return;
-      }
-
-      if (!Number.isFinite(current)) return;
-      if ((state === PLAYER_EVENT_STATE.pause || state === PLAYER_EVENT_STATE.ended) && recoverNearEndPlayback(p)) {
+      const snapshot = readPlayerSnapshot(p);
+      const current = snapshot.currentTimeSec;
+      const state = normalizeObservedPlayerState(snapshot.playerState ?? Number.NaN);
+      const playbackRate = snapshot.playbackRate != null && snapshot.playbackRate > 0 ? snapshot.playbackRate : 1;
+      if (current == null) return;
+      if (state === PLAYER_EVENT_STATE.pause && recoverNearEndPlayback(p)) {
         return;
       }
       const now = Date.now();

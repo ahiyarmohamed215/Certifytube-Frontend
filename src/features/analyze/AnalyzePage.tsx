@@ -56,6 +56,14 @@ export function AnalyzePage() {
   const scorePct = result ? result.engagementScore * 100 : 0;
   const scoreText = useMemo(() => `${scorePct.toFixed(0)}%`, [scorePct]);
   const title = locState.videoTitle?.trim() || "Video Session";
+  const explanationText = useMemo(() => {
+    if (!result) return "";
+    const fromMl = result.explanation?.trim();
+    if (fromMl) return fromMl;
+    return engaged
+      ? "You can now continue to quiz for the second verification step."
+      : "Please watch again and retry analysis to pass the first step.";
+  }, [engaged, result]);
 
   const goMyLearnings = () => nav(fromPath, { state: { initialStatus: fromStatus } });
   const goWatchAgain = () => {
@@ -130,9 +138,7 @@ export function AnalyzePage() {
               {engaged ? "Step 1 Passed" : "Step 1 Not Passed"}
             </p>
             <p className="ct-analyze-compact-popup-text">
-              {engaged
-                ? "You can now continue to quiz for the second verification step."
-                : "Please watch again and retry analysis to pass the first step."}
+              {explanationText}
             </p>
 
             <div className="ct-modal-actions ct-analyze-compact-actions">
