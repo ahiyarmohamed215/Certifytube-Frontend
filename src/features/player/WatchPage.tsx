@@ -31,6 +31,7 @@ type LocationState = {
   stemEligible?: boolean;
   stemMessage?: string | null;
   lastPositionSec?: number | null;
+  videoDurationSec?: number | null;
 };
 
 type PersistedWatchContext = {
@@ -40,6 +41,7 @@ type PersistedWatchContext = {
   fromPath: string;
   sessionId?: string;
   lastPositionSec?: number;
+  savedAtMs?: number;
   showBanner?: boolean;
 };
 
@@ -53,9 +55,6 @@ type CheckpointSnapshot = {
 
 const WATCH_RESUME_KEY = "ct_watch_resume_context";
 const WATCH_CONTEXT_EVENT = "ct-watch-context-change";
-const NEAR_END_RECOVERY_WINDOW_SEC = 1.25;
-const NEAR_END_RECOVERY_COOLDOWN_MS = 1200;
-
 function normalizeLearningStatus(value: unknown): LearningStatusTab | null {
   if (value === "active" || value === "completed" || value === "quiz") return value;
   return null;
@@ -145,6 +144,26 @@ function formatDuration(sec: number) {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+function normalizeResumePosition(value: unknown): number | null {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+}
+
+function normalizeDurationSec(value: unknown): number | null {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+}
+
+function pickResumePosition(...positions: Array<number | null | undefined>): number | null {
+  let best = 0;
+  for (const value of positions) {
+    if (typeof value === "number" && Number.isFinite(value) && value > best) {
+      best = value;
+    }
+  }
+  return best > 0 ? best : null;
+}
+
 function statusBadge(status: SessionStatus) {
   const map: Record<SessionStatus, { cls: string; label: string }> = {
     ACTIVE: { cls: "ct-badge-active", label: "Active" },
@@ -194,7 +213,6 @@ export function WatchPage() {
   const suppressSeekUntilMsRef = useRef(0);
   const resumeSeekKeyRef = useRef<string | null>(null);
   const lastCheckpointRef = useRef<CheckpointSnapshot | null>(null);
-  const lastNearEndRecoveryAtRef = useRef(0);
   const shouldShowPersistedBannerRef = useRef(true);
   const canLog = Boolean(sessionId && !sessionEnded);
   const canLogRef = useRef(false);
@@ -255,7 +273,6 @@ export function WatchPage() {
     resumeSeekKeyRef.current = null;
     playerStateRef.current = PLAYER_EVENT_STATE.unstarted;
     lastCheckpointRef.current = null;
-    lastNearEndRecoveryAtRef.current = 0;
   }, [sessionId]);
 
   const readObservedPlayerState = useCallback((observedPlayerState?: number | null) => {
@@ -376,29 +393,6 @@ export function WatchPage() {
     attemptResumePlayback(playerRef.current);
   }, [attemptResumePlayback]);
 
-  const recoverNearEndPlayback = useCallback((player?: WatchPlayer | null): boolean => {
-    if (!player || sessionEndedRef.current || endingSessionRef.current) return false;
-    if (document.visibilityState === "hidden") return false;
-
-    const snapshot = readPlayerSnapshot(player);
-    const current = snapshot.currentTimeSec;
-    const total = snapshot.durationSec;
-    if (current == null || total == null || total <= 0) return false;
-    const remaining = total - current;
-    if (remaining <= 0 || remaining > NEAR_END_RECOVERY_WINDOW_SEC) return false;
-
-    const now = Date.now();
-    if ((now - lastNearEndRecoveryAtRef.current) < NEAR_END_RECOVERY_COOLDOWN_MS) return false;
-    lastNearEndRecoveryAtRef.current = now;
-
-    try {
-      player.playVideo?.();
-      return true;
-    } catch {
-      return false;
-    }
-  }, []);
-
   const clearPersistedWatchContext = useCallback(() => {
     try {
       sessionStorage.removeItem(WATCH_RESUME_KEY);
@@ -423,6 +417,7 @@ export function WatchPage() {
       fromPath,
       sessionId: sessionIdRef.current || undefined,
       lastPositionSec,
+      savedAtMs: Date.now(),
       showBanner: options?.showBanner ?? shouldShowPersistedBannerRef.current,
     };
     try {
@@ -444,7 +439,6 @@ export function WatchPage() {
     const preferredTitle = locState.videoTitle || queryTitle || `Video ${videoId}`;
     const tokenKey = localStorage.getItem("ct_token") || "anon";
     const dedupeKey = `${tokenKey}:${videoId}`;
-    const shouldTryActiveResume = Boolean(locState.fromPath || locState.fromStatus || locState.sessionId);
     const persistedContext = readPersistedWatchContext();
     const existingSessionId = typeof locState.sessionId === "string" && locState.sessionId.trim()
       ? locState.sessionId.trim()
@@ -453,24 +447,13 @@ export function WatchPage() {
     const existingStemMessage = typeof locState.stemMessage === "string" || locState.stemMessage === null
       ? locState.stemMessage
       : null;
+    const routeVideoDuration = normalizeDurationSec(locState.videoDurationSec);
     const persistedLastPosition = persistedContext
       && persistedContext.videoId === videoId
-      && typeof persistedContext.lastPositionSec === "number"
-      && Number.isFinite(persistedContext.lastPositionSec)
-      && persistedContext.lastPositionSec > 0
-      && (
-        !existingSessionId
-        || !persistedContext.sessionId
-        || persistedContext.sessionId === existingSessionId
-      )
-      ? persistedContext.lastPositionSec
+      ? normalizeResumePosition(persistedContext.lastPositionSec)
       : null;
-    const routeLastPosition = typeof locState.lastPositionSec === "number"
-      && Number.isFinite(locState.lastPositionSec)
-      && locState.lastPositionSec > 0
-      ? locState.lastPositionSec
-      : null;
-    const existingLastPosition = persistedLastPosition ?? routeLastPosition;
+    const routeLastPosition = normalizeResumePosition(locState.lastPositionSec);
+    const existingLastPosition = pickResumePosition(persistedLastPosition, routeLastPosition);
     shouldPersistWatchContextRef.current = true;
     shouldShowPersistedBannerRef.current = true;
     setSessionId(null);
@@ -480,6 +463,8 @@ export function WatchPage() {
     setStemMessage(null);
     setTitle(preferredTitle);
     setShowWatchIntro(true);
+    setCurrentTime(0);
+    setDuration(routeVideoDuration ?? 0);
     playerRef.current = null;
 
     if (existingSessionId) {
@@ -488,6 +473,7 @@ export function WatchPage() {
       setStemEligible(existingStemEligible ?? true);
       setStemMessage(existingStemMessage);
       setLastPos(existingLastPosition);
+      setDuration(routeVideoDuration ?? 0);
       setSessionEnded(false);
       setShowWatchIntro(false);
       return () => {
@@ -496,15 +482,18 @@ export function WatchPage() {
     }
 
     (async () => {
-      if (shouldTryActiveResume && fromStatus === "active") {
+      if (fromStatus === "active") {
         try {
           const latest = pickLatestActiveSessionByVideo(await getDashboard(), videoId);
           if (!cancelled && latest?.sessionId) {
+            const resumePosition = pickResumePosition(latest.lastPositionSec ?? null, existingLastPosition);
+            const latestDuration = normalizeDurationSec(latest.videoDurationSec);
             setSessionId(latest.sessionId);
             setTitle(preferredTitle);
             setStemEligible(latest.stemEligible);
             setStemMessage(null);
-            setLastPos(latest.lastPositionSec ?? null);
+            setLastPos(resumePosition);
+            setDuration(latestDuration ?? routeVideoDuration ?? 0);
             setSessionEnded(false);
             setShowWatchIntro(false);
             return;
@@ -521,23 +510,29 @@ export function WatchPage() {
         });
         if (cancelled) return;
 
-        const shouldResumePlayback = res.resumed || ((res.lastPositionSec ?? 0) > 0);
+        const resumePosition = pickResumePosition(res.lastPositionSec ?? null, existingLastPosition);
+        const sessionDuration = normalizeDurationSec(res.videoDurationSec);
+        const shouldResumePlayback = res.resumed || resumePosition !== null;
         setSessionId(res.sessionId);
         setTitle(preferredTitle);
         setStemEligible(res.stemEligible);
         setStemMessage(res.stemMessage);
-        setLastPos(res.lastPositionSec);
+        setLastPos(resumePosition);
+        setDuration(sessionDuration ?? routeVideoDuration ?? 0);
         setSessionEnded(false);
         setShowWatchIntro(res.stemEligible && !shouldResumePlayback);
       } catch (e: unknown) {
         try {
           const latest = pickLatestActiveSessionByVideo(await getDashboard(), videoId);
           if (!cancelled && latest?.sessionId) {
+            const resumePosition = pickResumePosition(latest.lastPositionSec ?? null, existingLastPosition);
+            const latestDuration = normalizeDurationSec(latest.videoDurationSec);
             setSessionId(latest.sessionId);
             setTitle(preferredTitle);
             setStemEligible(latest.stemEligible);
             setStemMessage(null);
-            setLastPos(latest.lastPositionSec ?? null);
+            setLastPos(resumePosition);
+            setDuration(latestDuration ?? routeVideoDuration ?? 0);
             setSessionEnded(false);
             setShowWatchIntro(false);
             return;
@@ -565,6 +560,7 @@ export function WatchPage() {
     locState.stemEligible,
     locState.stemMessage,
     locState.lastPositionSec,
+    locState.videoDurationSec,
     locState.fromPath,
     locState.fromStatus,
     fromStatus,
@@ -642,41 +638,88 @@ export function WatchPage() {
   }, [flushSession, getPendingCount, stopTimer]);
 
   useEffect(() => {
-    const hasMatchMedia = typeof window.matchMedia === "function";
-    const isTouchMobile = (hasMatchMedia && window.matchMedia("(max-width: 900px), (pointer: coarse)").matches)
-      || navigator.maxTouchPoints > 0;
+    let blurTimeoutId: number | null = null;
 
     const pauseIfPlaying = () => {
       const player = playerRef.current;
       if (!player || sessionEndedRef.current) return;
-      const state = readPlayerSnapshot(player).playerState;
-      if (state === PLAYER_EVENT_STATE.play) {
+      try {
         player.pauseVideo?.();
-        stopTimer();
+      } catch {
+        // noop
       }
+      stopTimer();
     };
 
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "hidden") {
-        if (!isTouchMobile) {
-          pauseIfPlaying();
-        }
-        stopTimer();
-        void flushCurrentSession();
-        return;
-      }
+    const isPlayerIframeFocused = () => {
+      const activeElement = document.activeElement;
+      return activeElement instanceof HTMLIFrameElement
+        && activeElement.classList.contains("ct-watch-player-frame");
+    };
 
+    const handleLeaveForeground = () => {
+      pauseIfPlaying();
+      enqueueCheckpoint();
+      savePersistedWatchContext();
+      stopTimer();
+      void flushCurrentSession();
+    };
+
+    const resumeTimerIfActive = () => {
       if (canLogRef.current && !sessionEndedRef.current) {
         startTimer();
       }
     };
 
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        handleLeaveForeground();
+        return;
+      }
+
+      resumeTimerIfActive();
+    };
+
+    const handleWindowBlur = () => {
+      if (blurTimeoutId !== null) {
+        window.clearTimeout(blurTimeoutId);
+      }
+      // Let focus settle first so clicking into the YouTube iframe does not count as leaving the app.
+      blurTimeoutId = window.setTimeout(() => {
+        blurTimeoutId = null;
+        if (document.visibilityState === "hidden") {
+          handleLeaveForeground();
+          return;
+        }
+
+        const hasDocumentFocus = typeof document.hasFocus === "function" ? document.hasFocus() : true;
+        if (!hasDocumentFocus && !isPlayerIframeFocused()) {
+          handleLeaveForeground();
+        }
+      }, 80);
+    };
+
+    const handleWindowFocus = () => {
+      if (blurTimeoutId !== null) {
+        window.clearTimeout(blurTimeoutId);
+        blurTimeoutId = null;
+      }
+      resumeTimerIfActive();
+    };
+
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("blur", handleWindowBlur);
+    window.addEventListener("focus", handleWindowFocus);
 
     return () => {
+      if (blurTimeoutId !== null) {
+        window.clearTimeout(blurTimeoutId);
+      }
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("blur", handleWindowBlur);
+      window.removeEventListener("focus", handleWindowFocus);
     };
-  }, [flushCurrentSession, startTimer, stopTimer]);
+  }, [enqueueCheckpoint, flushCurrentSession, savePersistedWatchContext, startTimer, stopTimer]);
 
   useEffect(() => {
     if (sessionEnded) {
@@ -763,15 +806,9 @@ export function WatchPage() {
     }
 
     if (eventType === "play") {
-      lastNearEndRecoveryAtRef.current = 0;
       setWatchFinishedHint(false);
       if (canLog) startTimer();
-    } else if (eventType === "pause") {
-      if (recoverNearEndPlayback(p)) {
-        return;
-      }
     } else if (eventType === "ended") {
-      lastNearEndRecoveryAtRef.current = 0;
       setWatchFinishedHint(true);
       toast("Finished watching. Click Complete Session to get the engagement score.");
     }
@@ -805,9 +842,6 @@ export function WatchPage() {
       const state = normalizeObservedPlayerState(snapshot.playerState ?? Number.NaN);
       const playbackRate = snapshot.playbackRate != null && snapshot.playbackRate > 0 ? snapshot.playbackRate : 1;
       if (current == null) return;
-      if (state === PLAYER_EVENT_STATE.pause && recoverNearEndPlayback(p)) {
-        return;
-      }
       const now = Date.now();
 
       if (lastObservedTimeRef.current == null || lastObservedAtMsRef.current == null) {
@@ -842,10 +876,23 @@ export function WatchPage() {
     }, 150);
 
     return () => window.clearInterval(t);
-  }, [canLog, enqueue, playerReadyTick, recoverNearEndPlayback]);
+  }, [canLog, enqueue, playerReadyTick]);
 
   const handleEndSession = async () => {
     if (!sessionId || sessionEnded) return;
+
+    const resolvedDuration = normalizeDurationSec(
+      readPlayerSnapshot(playerRef.current).durationSec
+      ?? duration
+      ?? locState.videoDurationSec,
+    );
+    if (!resolvedDuration) {
+      toast.error("Video duration is not ready yet. Play a little more and try Complete Session again.");
+      return;
+    }
+    if (duration <= 0) {
+      setDuration(resolvedDuration);
+    }
 
     enqueueCheckpoint();
 

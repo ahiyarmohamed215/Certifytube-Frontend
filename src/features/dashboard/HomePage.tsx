@@ -28,6 +28,7 @@ type PersistedWatchContext = {
   fromPath?: string;
   sessionId?: string;
   lastPositionSec?: number;
+  savedAtMs?: number;
   showBanner?: boolean;
 };
 
@@ -547,7 +548,6 @@ export function MyLearningsPage() {
     const latestResumeContext = readPersistedWatchContext();
     const resumeLastPosition = latestResumeContext
       && latestResumeContext.videoId === v.videoId
-      && (!latestResumeContext.sessionId || latestResumeContext.sessionId === v.sessionId)
       && typeof latestResumeContext.lastPositionSec === "number"
       && Number.isFinite(latestResumeContext.lastPositionSec)
       && latestResumeContext.lastPositionSec > 0
@@ -559,6 +559,7 @@ export function MyLearningsPage() {
           videoTitle: v.videoTitle,
           fromStatus,
           fromPath,
+          videoDurationSec: v.videoDurationSec,
           ...(v.status === "ACTIVE"
             ? {
               sessionId: v.sessionId,

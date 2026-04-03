@@ -11,6 +11,12 @@ const SEARCH_TEXT_KEY = "ct_home_search_text";
 const SEARCH_SUBMITTED_KEY = "ct_home_search_submitted";
 const SEARCH_RESULTS_KEY = "ct_home_search_results";
 const SEARCH_DURATIONS_KEY = "ct_home_video_durations";
+const WATCH_RESUME_KEY = "ct_watch_resume_context";
+
+type PersistedWatchContext = {
+  videoId: string;
+  lastPositionSec?: number;
+};
 
 declare global {
   interface Window {
@@ -145,6 +151,27 @@ function readDurationCache(): Record<string, number> {
   }
 }
 
+function readPersistedWatchContext(): PersistedWatchContext | null {
+  if (typeof window === "undefined") return null;
+  const raw = sessionStorage.getItem(WATCH_RESUME_KEY);
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as PersistedWatchContext;
+    if (!parsed?.videoId) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function getResumeLastPositionSec(videoId: string): number | undefined {
+  const persisted = readPersistedWatchContext();
+  if (!persisted || persisted.videoId !== videoId) return undefined;
+  const value = Number(persisted.lastPositionSec);
+  return Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
 function formatDuration(sec: number): string {
   const s = Math.max(0, Math.floor(sec));
   const h = Math.floor(s / 3600);
@@ -195,6 +222,22 @@ export function SearchPage() {
   const [durationCache, setDurationCache] = useState<Record<string, number>>(() => readDurationCache());
 
   const nav = useNavigate();
+
+  const navigateToWatch = (videoId: string, videoTitle?: string, videoDurationSec?: number) => {
+    const resumeLastPosition = getResumeLastPositionSec(videoId);
+    const normalizedDuration = Number.isFinite(Number(videoDurationSec)) && Number(videoDurationSec) > 0
+      ? Number(videoDurationSec)
+      : undefined;
+    nav(`/watch/${videoId}`, {
+      state: {
+        videoTitle,
+        fromStatus: "active",
+        fromPath: "/home",
+        ...(normalizedDuration != null ? { videoDurationSec: normalizedDuration } : {}),
+        ...(resumeLastPosition != null ? { lastPositionSec: resumeLastPosition } : {}),
+      },
+    });
+  };
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["yt-search", submitted],
@@ -267,7 +310,7 @@ export function SearchPage() {
     const pastedVideoId = extractYouTubeVideoId(text);
     if (pastedVideoId) {
       setQ("");
-      nav(`/watch/${pastedVideoId}`);
+      navigateToWatch(pastedVideoId);
       return;
     }
 
@@ -375,7 +418,7 @@ export function SearchPage() {
                 <div
                   key={v.videoId}
                   className="ct-video-card"
-                  onClick={() => nav(`/watch/${v.videoId}`, { state: { videoTitle: v.title } })}
+                  onClick={() => navigateToWatch(v.videoId, v.title, durationSec)}
                   id={`video-card-${v.videoId}`}
                 >
                   <div className="ct-video-card-thumb-wrap">

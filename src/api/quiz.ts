@@ -22,6 +22,13 @@ export async function generateQuiz(req: QuizGenerateRequest): Promise<QuizRespon
     });
     return res.data;
   } catch (error: any) {
+    const status = Number(error?.response?.status || 0);
+    const responseData = error?.response?.data;
+    const responseText = typeof responseData === "string" ? responseData : JSON.stringify(responseData || {});
+    if ((status === 422 || status === 400) && /video_duration_sec/i.test(responseText)) {
+      throw new Error("Quiz generation failed because this session has no valid video duration. Rewatch the video and complete the session again, then retry quiz generation.");
+    }
+
     const message = String(error?.message || "");
     if (/timeout|econnaborted/i.test(message)) {
       throw new Error("Quiz generation timed out. Please try once again.");

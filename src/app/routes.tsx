@@ -59,6 +59,7 @@ export const router = createBrowserRouter([
 
   // Legacy redirects
   { path: "/dashboard", element: <Navigate to="/my-learnings" replace /> },
+  { path: "/search", element: <Navigate to="/home" replace /> },
   { path: "/admin/learners", element: <Navigate to="/admin" replace /> },
   { path: "/admin/engagement", element: <Navigate to="/admin" replace /> },
   { path: "/admin/engagement/:sessionId", element: <Navigate to="/admin" replace /> },
